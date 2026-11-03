@@ -1,0 +1,17 @@
+{
+  "name": "Kan — la voix de nos langues",
+  "short_name": "Kan",
+  "description": "Lis, traduis et écoute pour donner une voix au mooré et au dioula.",
+  "lang": "fr",
+  "start_url": "/app",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fbf5e9",
+  "theme_color": "#0e5a3a",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
