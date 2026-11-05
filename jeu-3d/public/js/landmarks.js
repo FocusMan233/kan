@@ -17,6 +17,7 @@ export const LM = {
   gov:      { label: 'Administration', wall: '#e7e1cf', roof: '#6b7a8a', h: 4.6, bg: '#1e6fb8' },
   sport:    { label: 'Sport', wall: '#d8d2c0', roof: '#6b7a8a', h: 3.2, bg: '#2e7d4f' },
   shop:     { label: 'Boutique', wall: '#e8c9a0', roof: '#8e949a', h: 3.2, bg: '#d4a017' },
+  junction: { label: 'Carrefour', wall: '#e8d9b8', roof: '#8e949a', h: 3, bg: '#2b6cb0' },
   other:    { label: '', wall: '#e8d9b8', roof: '#8e949a', h: 3.4, bg: '#4a5568' },
 };
 export const lmStyle = t => LM[t] || LM.other;
@@ -54,13 +55,14 @@ function nameSign(ctx, L, b, dir) {
   const st = lmStyle(L.type), t = label(L); if (!t) return;
   const r = Math.max(b.maxx - b.minx, b.maxz - b.minz) / 2, w = Math.max(3.4, Math.min(8, t.length * .38 + 1.2));
   const x = b.cx + dir.x * (r + 1.6), z = b.cz + dir.z * (r + 1.6);
-  sign(ctx, t, x, 3.5, z, Math.atan2(dir.x, dir.z), w, 1.25, { bg: st.bg, sub: st.label && st.label !== t ? st.label : '', posts: true });
+  sign(ctx, t, x, 3.5, z, Math.atan2(dir.x, dir.z), w, 1.25, { bg: st.bg, sub: L.local || (st.label && st.label !== t ? st.label : ''), posts: true });
 }
 
 export function decorateBuilding(ctx, L, b, dir) { features(ctx, L, b, dir); nameSign(ctx, L, b, dir); }
 
 /** Lieu sans bâtiment OSM : petit bâtiment-repère + plaque. */
 export function standaloneLandmark(ctx, L, dir) {
+  if (L.type === 'junction') { nameSign(ctx, L, { minx: L.x - 1, maxx: L.x + 1, minz: L.z - 1, maxz: L.z + 1, cx: L.x, cz: L.z, h: 3 }, dir); return; }
   const st = lmStyle(L.type), w = L.type === 'market' ? 12 : 7, d = L.type === 'market' ? 8 : 5, h = Math.min(st.h, 4);
   const b = { minx: L.x - w / 2, maxx: L.x + w / 2, minz: L.z - d / 2, maxz: L.z + d / 2, cx: L.x, cz: L.z, h };
   if (L.type !== 'market') {

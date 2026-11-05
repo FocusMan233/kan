@@ -78,6 +78,31 @@ CREATE TABLE IF NOT EXISTS mission_progress (
   done_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (user_id, mission_id)
 );
+CREATE TABLE IF NOT EXISTS places (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  quartier TEXT NOT NULL,
+  type TEXT NOT NULL,
+  name TEXT NOT NULL,
+  names TEXT NOT NULL DEFAULT '{}',
+  x REAL NOT NULL,
+  z REAL NOT NULL,
+  user_id INTEGER REFERENCES users(id),
+  status TEXT NOT NULL DEFAULT 'pending',
+  yes INTEGER NOT NULL DEFAULT 0,
+  no INTEGER NOT NULL DEFAULT 0,
+  moved INTEGER NOT NULL DEFAULT 0,
+  source TEXT NOT NULL DEFAULT 'player',
+  paid INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_places_q ON places(quartier, status);
+CREATE TABLE IF NOT EXISTS place_votes (
+  place_id INTEGER NOT NULL REFERENCES places(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  verdict TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (place_id, user_id)
+);
 CREATE TABLE IF NOT EXISTS api_keys (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   key_hash TEXT NOT NULL UNIQUE,

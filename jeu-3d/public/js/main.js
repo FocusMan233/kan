@@ -3,6 +3,8 @@ import { World, HALF } from './world.js';
 import { buildCharacter, avatarSpec, SKINS } from './characters.js';
 import { Api, LS } from './api.js';
 import { ClipRecorder } from './clip.js';
+import { quality, PIXEL_MAX } from './quality.js';
+import { LM } from './landmarks.js';
 
 const $ = id => document.getElementById(id);
 const qs = new URLSearchParams(location.search);
@@ -10,18 +12,13 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // ---------------------------------------------------------------- qualité & rendu
-function detectQuality() {
-  const f = qs.get('quality'); if (['high', 'mid', 'low'].includes(f)) return f;
-  const mobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
-  const mem = navigator.deviceMemory || (mobile ? 3 : 8), cores = navigator.hardwareConcurrency || 4;
-  if (mem <= 2 || cores <= 4 && mobile) return 'low';
-  if (mobile || mem <= 4) return 'mid';
-  return 'high';
-}
-const quality = detectQuality();
+
 const canvas = $('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: quality === 'high', powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, quality === 'high' ? 2 : quality === 'mid' ? 1.5 : 1));
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: quality !== 'low' && (devicePixelRatio || 1) < 2.2, powerPreference: 'high-performance' });
+const DPR = Math.min(devicePixelRatio || 1, PIXEL_MAX);
+let pixelRatio = Math.min(DPR, quality === 'high' ? DPR : 1.75);
+renderer.setPixelRatio(pixelRatio);
+THREE.Texture.DEFAULT_ANISOTROPY = Math.min(16, renderer.capabilities.getMaxAnisotropy());   // textures nettes à distance
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
 const scene = new THREE.Scene();
@@ -148,8 +145,10 @@ async function enterGame(quartierId) {
   const q = C.quartiers.find(x => x.id === (quartierId || u.quartier)) || C.quartiers[0];
   G.mode = 'boot'; G.mission = null; clearBeacon(); G.lmSeen = new Set();
   $('hud').classList.add('hidden'); showLoading(true); progress(0, 'Chargement de ' + q.name + '…');
+  const pl = await Api.places(q.id); G.places = pl.places || []; G.placeSkip = new Set();
+  world.placesData = G.places;
   await world.build(q, C, progress);
-  G.quartier = q;
+  G.quartier = q; refreshPending();
   // joueur
   if (G.player) scene.remove(G.player.group);
   G.player = buildCharacter(avatarSpec(u.avatar || {}));
@@ -357,6 +356,58 @@ async function listenDialog(n) {
   $('shClose').onclick = () => { n.talking = false; closeSheet(); };
 }
 
+// ---------------------------------------------------------------- co-construction des lieux
+const pendingList = () => (G.places || []).filter(p => p.status === 'pending');
+function refreshPending() { world.setPendingPlaces(pendingList()); }
+const PT_ICON = { mosque: '🕌', church: '⛪', school: '🏫', market: '🧺', health: '🏥', pharmacy: '💊', fuel: '⛽', bank: '🏦', food: '🍽️', hotel: '🏨', gov: '🏛️', sport: '⚽', shop: '🏪', junction: '🚦', other: '📌' };
+function addPlaceSheet() {
+  const C = G.content, langs = G.user.langs, types = C.place_types || Object.keys(LM);
+  let type = 'shop';
+  const px = Math.round(G.pos.x), pz = Math.round(G.pos.z);
+  const body = openSheet(`<h2>📍 Ajouter un lieu</h2>
+  <p class="lead" style="font-size:13.5px">Tu es devant un lieu de ton quartier qui n'est pas dans le jeu ? Ajoute-le. Tes voisins le confirmeront. <b>Seulement des lieux publics</b> (pas de maison ni de nom de personne).</p>
+  <div class="field"><label>Type de lieu</label><div class="chips" id="ptypes">${types.map(t => `<button class="chip ${t === type ? 'on' : ''}" data-t="${t}">${PT_ICON[t] || '📌'} ${esc((LM[t] || LM.other).label || 'Autre')}</button>`).join('')}</div></div>
+  <div class="field"><label>Nom du lieu</label><input type="text" id="pname" maxlength="60" placeholder="ex. Marché de Gounghin"></div>
+  ${langs.map(l => `<div class="field"><label>Comment on l'appelle en ${esc(C.languages.find(x => x.code === l)?.name || l)} ? (facultatif)</label><input type="text" data-ln="${l}" maxlength="60"></div>`).join('')}
+  <p class="lead" style="font-size:12.5px">Il sera placé <b>ici, là où tu te tiens</b>. Place-toi devant le lieu avant d'envoyer.</p>
+  <div class="row"><button class="btn ghost" id="shClose">Annuler</button><button class="btn green" id="pSend">Envoyer</button></div>`);
+  body.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { type = b.dataset.t; body.querySelectorAll('[data-t]').forEach(x => x.classList.toggle('on', x === b)); });
+  $('shClose').onclick = closeSheet;
+  $('pSend').onclick = async () => {
+    const name = $('pname').value.trim(); if (name.length < 2) return toast('Écris le nom du lieu.');
+    const names = {}; body.querySelectorAll('[data-ln]').forEach(i => { if (i.value.trim()) names[i.dataset.ln] = i.value.trim(); });
+    $('pSend').disabled = true;
+    try {
+      if (Api.demo) { G.places.push({ id: -Date.now(), type, name, names, x: px, z: pz, status: 'pending', mine: true }); }
+      else { await Api.addPlace({ quartier: G.quartier.id, type, name, names, x: G.pos.x, z: G.pos.z }); G.places = (await Api.places(G.quartier.id)).places; }
+      refreshPending(); closeSheet(); toast('Merci ! Tes voisins vont confirmer ce lieu.', 3200);
+    } catch (e) { $('pSend').disabled = false; toast(e.message, 4000); }
+  };
+}
+let voteAt = 0;
+function checkPlaceVote() {
+  if (!sheet.classList.contains('hidden') || G.busy || performance.now() < voteAt) return;
+  voteAt = performance.now() + 700;
+  const p = pendingList().find(p => !p.mine && !p.voted && !G.placeSkip.has(p.id) && Math.hypot(p.x - G.pos.x, p.z - G.pos.z) < 13);
+  if (!p) return;
+  G.placeSkip.add(p.id);
+  const lab = (LM[p.type] || LM.other).label;
+  const body = openSheet(`<div style="text-align:center;font-size:44px">${PT_ICON[p.type] || '📍'}</div><h2 style="text-align:center">« ${esc(p.name)} »</h2>
+  <p class="lead" style="text-align:center">Un joueur dit qu'il y a ici : ${esc(lab || 'un lieu')}. Tu connais ce lieu ?</p>
+  <div class="opts"><button class="opt" data-v="yes">✅ Oui, il existe ici</button><button class="opt" data-v="moved">📍 Oui, mais il est un peu plus loin</button><button class="opt" data-v="no">❌ Non, je ne le connais pas</button></div>
+  <button class="btn ghost" id="shClose" style="width:100%">Plus tard</button>`);
+  $('shClose').onclick = closeSheet;
+  body.querySelectorAll('[data-v]').forEach(b => b.onclick = async () => {
+    body.querySelectorAll('.opt').forEach(x => x.disabled = true);
+    try {
+      if (!Api.demo) { const r = await Api.votePlace(p.id, b.dataset.v); addPoints(r.points_awarded); toast(r.status === 'confirmed' ? 'Lieu confirmé, merci ! 🎉' : `Merci ! +${r.points_awarded}⭐`, 2800); G.places = (await Api.places(G.quartier.id)).places; refreshPending(); }
+      else toast('Merci !');
+    } catch (e) { toast(e.message, 3000); }
+    closeSheet();
+  });
+}
+$('btnPlace').onclick = () => G.mode === 'play' && addPlaceSheet();
+
 // ---------------------------------------------------------------- menu
 async function menu() {
   let me = null; try { me = await Api.me(); } catch {}
@@ -490,6 +541,7 @@ function updatePlay(dt) {
     G.lmSeen = G.lmSeen || new Set();
     for (const L of world.landmarks) if (L.name && !G.lmSeen.has(L.name) && Math.hypot(L.x - G.pos.x, L.z - G.pos.z) < 16) { G.lmSeen.add(L.name); toast('📍 ' + L.name, 2600); G.lmT = G.t + 3; break; }
   }
+  checkPlaceVote();
   // bouton parler
   const near = world.nearestNpc(G.pos, 3.6), bt = $('btnTalk');
   if (near && sheet.classList.contains('hidden')) {
@@ -517,6 +569,7 @@ function drawMini(tg) {
   // la carte tourne avec la caméra, centrée sur le joueur (zoom ×2.2)
   const z = 2.2; mg.translate(S / 2, S / 2); mg.rotate(G.cam.yaw + Math.PI); mg.scale(z, z); mg.translate(-(o + G.pos.x * s), -(o + G.pos.z * s));
   mg.drawImage(G.mini, 0, 0);
+  for (const p of G.places || []) { mg.fillStyle = p.status === 'confirmed' ? '#7ee0a5' : '#f4c542'; mg.beginPath(); mg.arc(o + p.x * s, o + p.z * s, 2.6, 0, 7); mg.fill(); }
   if (tg) { mg.fillStyle = '#ffd33d'; mg.strokeStyle = '#000'; mg.lineWidth = 1; mg.beginPath(); mg.arc(o + tg.pos.x * s, o + tg.pos.z * s, 4, 0, 7); mg.fill(); mg.stroke(); }
   mg.restore();
   mg.fillStyle = '#fff'; mg.strokeStyle = '#1b9a48'; mg.lineWidth = 3; mg.beginPath();
@@ -530,10 +583,20 @@ function updateStage(dt) {
   world.sky.position.set(0, 0, 0);
 }
 
+// résolution adaptative : on baisse un peu si le téléphone rame, on remonte s'il est à l'aise (netteté maximale sans saccades)
+const perf = { n: 0, sum: 0, hold: 0 };
+function adaptResolution(dt) {
+  if (clip.state !== 'idle' || G.mode !== 'play') return;
+  perf.n++; perf.sum += dt; if (perf.n < 80) return;
+  const avg = perf.sum / perf.n; perf.n = 0; perf.sum = 0; if (perf.hold-- > 0) return;
+  let r = pixelRatio;
+  if (avg > 1 / 27 && r > 1) r = Math.max(1, r - .25); else if (avg < 1 / 52 && r < DPR) r = Math.min(DPR, r + .25);
+  if (r !== pixelRatio) { pixelRatio = r; renderer.setPixelRatio(r); resize(); perf.hold = 2; }
+}
 function loop() {
   requestAnimationFrame(loop);
   const _n = performance.now(); const dt = Math.min((_n - _last) / 1000, .05); _last = _n; G.t += dt;
-  if (G.mode === 'play') { updatePlay(dt); world.update(dt, G.t, G.pos); }
+  if (G.mode === 'play') { updatePlay(dt); world.update(dt, G.t, G.pos); adaptResolution(dt); }
   else if (G.mode === 'stage') updateStage(dt);
   else return;
   renderer.render(scene, camera);

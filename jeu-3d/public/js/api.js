@@ -50,6 +50,9 @@ export const Api = {
     if (this.demo) return { points_awarded: reward, points: reward };
     return this.req('POST', '/api/mission/complete', { mission_id });
   },
+  async places(q) { if (this.demo) return { places: [] }; try { return await this.req('GET', '/api/places?quartier=' + q); } catch { return { places: [] }; } },
+  addPlace(body) { return this.req('POST', '/api/places', body); },
+  votePlace(id, verdict) { return this.req('POST', `/api/places/${id}/vote`, { verdict }); },
   async audioBlobUrl(url) {
     const r = await fetch(url, { headers: { Authorization: 'Bearer ' + this.token } });
     if (!r.ok) throw new Error('audio');

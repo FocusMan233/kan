@@ -1,5 +1,6 @@
 // Personnages 3D procéduraux : peaux, tenues burkinabè (boubou, pagne wax, Faso Dan Fani, blouse...), coiffes, animations.
 import * as THREE from 'three';
+import { DETAIL } from './quality.js';
 import { Batcher, M, G } from './batch.js';
 import { waxTexture, fasoDanFaniTexture } from './textures.js';
 
@@ -16,7 +17,7 @@ function patMat(kind, c1, c2, pattern) {
   return matCache.get(key);
 }
 
-const CAP = (r, l) => new THREE.CapsuleGeometry(r, l, 4, 10);
+const CAP = (r, l) => new THREE.CapsuleGeometry(r, l, DETAIL.cap[0], DETAIL.cap[1]);
 const shade = (hex, k) => '#' + new THREE.Color(hex).multiplyScalar(k).getHexString();
 
 export function buildCharacter(spec) {

@@ -23,6 +23,15 @@ node tools/import-osm.mjs gounghin --center=12.3714,-1.5426   # centre précis s
 ### Rendre un quartier fidèle
 L'import choisit automatiquement, dans un rayon de ~850 m autour du centre trouvé par Nominatim, la fenêtre de 300 m qui contient le plus de lieux nommés (mosquées, églises, écoles, marché, stations, banques…). Ces lieux sont construits dans le jeu **avec leur vrai nom** (plaque, minaret, croix, auvent de station…) et les noms de rues sont affichés sur des plaques vertes. Si la fenêtre choisie n'est pas la bonne : `node tools/import-osm.mjs gounghin --center=LAT,LON` (clic droit sur Google Maps → copier les coordonnées), ou ajoute `center: [lat, lon]` au quartier dans `server/content.js`.
 
+### Sources de cartes
+OpenStreetMap (rues, bâtiments, lieux nommés) **+ Overture Maps** (bâtiments Microsoft/Google pour l'Afrique, lieux Meta/Microsoft) : le Docker installe l'outil `overturemaps` et l'import fusionne les deux sources sans doublons (désactiver : `OVERTURE=0`). Si Overture n'est pas accessible, l'import continue avec OpenStreetMap seul.
+
+### Co-construction par les joueurs
+Bouton **📍 Lieu** dans le jeu : le joueur ajoute un lieu public (mosquée, marché, école, maquis, carrefour…) avec son nom, et son nom en mooré/dioula (facultatif). Ce lieu apparaît en « à confirmer » pour les voisins ; quand un joueur passe à moins de 13 m, on lui demande « ça existe ? ». Avec 3 confirmations (`PLACE_MIN_VOTES`, `PLACE_YES_RATIO`) le lieu devient permanent et est construit dans le quartier au prochain chargement ; l'auteur gagne 15⭐, chaque vote 3⭐. Admin → **Lieux** : confirmer/rejeter/corriger/ajouter, avec latitude/longitude (lien OpenStreetMap) pour pouvoir améliorer aussi la vraie carte.
+
+### Qualité d'image
+Netteté adaptée à chaque téléphone : résolution adaptative (monte si le téléphone est à l'aise, baisse s'il rame), filtrage anisotrope, formes plus fines, ombres 4096 px sur les bons appareils. Forcer : `/?quality=high|mid|low`.
+
 ## Contenu
 `server/content.js` : quartiers, personnages, missions et phrases. **Les phrases de santé doivent être relues par un professionnel de santé**, et les « bonnes nouvelles » (missions m2, c2, flash info) sont des exemples à **vérifier/remplacer** (admin → Phrases). Les traductions de santé ne sortent dans l'API qu'après ton approbation (admin → Traductions → ✓).
 

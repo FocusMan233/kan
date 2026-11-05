@@ -77,7 +77,7 @@ export class World {
     this.renderer.shadowMap.enabled = q !== 'low';
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.sun.castShadow = q !== 'low';
-    sh.mapSize.set(q === 'high' ? 2048 : 1024, q === 'high' ? 2048 : 1024);
+    const ms = q === 'high' ? 4096 : q === 'mid' ? 2048 : 1024; sh.mapSize.set(ms, ms);
     const e = 48; Object.assign(sh.camera, { left: -e, right: e, top: e, bottom: -e, near: 1, far: 220 });
     sh.bias = -0.0006; sh.normalBias = 0.04;
   }
@@ -132,6 +132,7 @@ export class World {
 
     await tick(.45, 'Maisons et concessions…');
     if (osm) this._osmBuildings(ctx, osm, blocked); else this._residential(ctx, roads, blocked);
+    this._places(ctx, blocked);
 
     await tick(.6, 'Arbres et détails…');
     this._avenueProps(ctx, roads, blocked);
@@ -311,6 +312,30 @@ export class World {
       const r = this.roads.find(r => r.name === s.name); if (!r) continue;
       let i = Math.floor(r.pts.length / 2); const a = r.pts[Math.max(0, i - 1)], b2 = r.pts[Math.min(r.pts.length - 1, i + 1)];
       streetSign(ctx, s.name, r.pts[i][0], r.pts[i][1], b2[0] - a[0], b2[1] - a[1], r.w || 5);
+    }
+  }
+
+  /** Lieux confirmés par les joueurs (co-construction) : construits comme les repères OSM. */
+  _places(ctx, blocked) {
+    this.landmarks = this.landmarks || [];
+    for (const p of (this.placesData || []).filter(p => p.status === 'confirmed')) {
+      if (this.landmarks.some(l => (l.name || '').toLowerCase() === p.name.toLowerCase() && Math.hypot(l.x - p.x, l.z - p.z) < 40)) continue;
+      const dir = this._dirToRoad(p.x, p.z), L = { type: p.type, name: p.name, local: Object.values(p.names || {})[0] || '', x: p.x - dir.x * 4.5, z: p.z - dir.z * 4.5 };
+      if (p.type !== 'junction' && blocked.some(bk => rectOverlap({ x: L.x, z: L.z, w: 9, d: 7 }, bk, 0))) continue;
+      standaloneLandmark(ctx, L, dir); this.landmarks.push({ type: p.type, name: p.name, x: p.x, z: p.z });
+    }
+  }
+
+  /** Lieux proposés, en attente de confirmation : repère lumineux léger + étiquette « à confirmer ». */
+  setPendingPlaces(list) {
+    if (this.pendingGroup) { this.group.remove(this.pendingGroup); this.pendingGroup.traverse(o => { o.geometry?.dispose?.(); o.material?.map?.dispose?.(); o.material?.dispose?.(); }); }
+    const g = this.pendingGroup = new THREE.Group(); this.group.add(g);
+    for (const p of list) {
+      const col = p.mine ? '#7ee0a5' : '#f4c542';
+      const beam = new THREE.Mesh(new THREE.CylinderGeometry(.22, .22, 7, 12, 1, true), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: .4, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+      beam.position.set(p.x, 3.5, p.z); g.add(beam);
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: signTexture('❓ ' + p.name, { bg: p.mine ? '#1f7a4d' : '#f4c542', fg: p.mine ? '#fff' : '#2a1a05', w: 512, h: 128, sub: p.mine ? 'à confirmer par les voisins' : 'ça existe ?', border: '#fff' }), depthWrite: false, fog: false }));
+      sp.scale.set(4.4, 1.1, 1); sp.position.set(p.x, 7.6, p.z); g.add(sp);
     }
   }
 

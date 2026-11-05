@@ -73,8 +73,8 @@ input, textarea { user-select: text; -webkit-user-select: text; touch-action: ma
 #actions { position: absolute; right: calc(var(--sar) + 18px); bottom: calc(var(--sab) + 110px); }
 #btnTalk { padding: 16px 22px; border-radius: 999px; font-size: 18px; font-weight: 800; background: linear-gradient(180deg, #f6cf55, #e5a91c); color: #2a1a05; box-shadow: 0 5px 0 #9b6d0a, 0 10px 24px rgba(0,0,0,.4); animation: pulse 1.4s infinite; }
 @keyframes pulse { 50% { transform: scale(1.06); } }
-#dock { position: absolute; right: calc(var(--sar) + 12px); bottom: calc(var(--sab) + 18px); display: flex; gap: 10px; }
-#dock button { width: 68px; height: 62px; border-radius: 16px; background: var(--panel); border: 1px solid rgba(255,255,255,.14); font-size: 24px; line-height: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+#dock { position: absolute; right: calc(var(--sar) + 12px); bottom: calc(var(--sab) + 18px); display: flex; gap: 7px; }
+#dock button { width: 58px; height: 62px; border-radius: 16px; background: var(--panel); border: 1px solid rgba(255,255,255,.14); font-size: 24px; line-height: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
 #dock small { font-size: 10px; color: var(--mut); }
 #rec { position: absolute; top: calc(var(--sat) + 10px); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 7px 8px 7px 14px; border-radius: 999px; background: rgba(160,20,20,.92); font-weight: 700; }
 #rec i { width: 12px; height: 12px; border-radius: 50%; background: #fff; animation: pulse 1s infinite; }

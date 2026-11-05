@@ -71,7 +71,7 @@ function buildContent() {
     summary: 'Les dernières bonnes nouvelles du pays.', intro: 'Une annonce toute fraîche ! Traduis-la pour Yaaba.', sensitive: false,
     steps: news.map(n => ({ npc: 'animateur', say: n.text_fr, key: n.key })),
   });
-  return { languages: LANGUAGES, quartiers: QUARTIERS, zones: ZONES, npcs: NPCS, missions };
+  return { languages: LANGUAGES, quartiers: QUARTIERS, zones: ZONES, npcs: NPCS, missions, place_types: ['mosque', 'church', 'school', 'market', 'health', 'pharmacy', 'fuel', 'bank', 'food', 'hotel', 'gov', 'sport', 'shop', 'junction', 'other'] };
 }
 app.get('/api/content', (req, res) => res.json(buildContent()));
 
@@ -229,6 +229,72 @@ app.post('/api/mission/complete', auth, wrap((req, res) => {
   res.json({ points_awarded: awarded, points: u.points });
 }));
 
+
+// ---------- co-construction : les joueurs ajoutent et confirment les lieux de leur quartier ----------
+const PLACE_TYPES = ['mosque', 'church', 'school', 'market', 'health', 'pharmacy', 'fuel', 'bank', 'food', 'hotel', 'gov', 'sport', 'shop', 'junction', 'other'];
+const PLACE_MIN = Number(process.env.PLACE_MIN_VOTES) || 3, PLACE_RATIO = Number(process.env.PLACE_YES_RATIO) || 0.67;
+const MAPS_DIR = path.join(__dirname, '..', 'public', 'data', 'quartiers');
+function latlon(q, x, z) {
+  try {
+    const m = JSON.parse(fs.readFileSync(path.join(MAPS_DIR, q + '.json'), 'utf8')); const [la, lo] = m.center || []; if (la == null) return null;
+    const lat = la - z / 111320; return { lat: +lat.toFixed(6), lon: +(lo + x / (111320 * Math.cos(la * Math.PI / 180))).toFixed(6) };
+  } catch { return null; }
+}
+function recomputePlace(id) {
+  const p = db.prepare('SELECT * FROM places WHERE id=?').get(id); if (!p) return;
+  if (p.source === 'admin') return;   // décision d'un admin : définitive
+  const exist = p.yes + p.moved;
+  let st = p.status;
+  if (st === 'pending' || st === 'confirmed') {
+    if (exist >= PLACE_MIN && exist / (exist + p.no) >= PLACE_RATIO) st = 'confirmed';
+    else if (p.no >= PLACE_MIN && p.no > exist) st = 'rejected';
+    else st = 'pending';
+  }
+  if (st !== p.status) db.prepare('UPDATE places SET status=? WHERE id=?').run(st, id);
+  if (st === 'confirmed' && !p.paid && p.user_id) { db.prepare('UPDATE places SET paid=1 WHERE id=?').run(id); db.prepare('UPDATE users SET points = points + 15 WHERE id=?').run(p.user_id); }
+}
+const placeOut = (r, uid) => ({ id: r.id, type: r.type, name: r.name, names: JSON.parse(r.names || '{}'), x: r.x, z: r.z, status: r.status, mine: r.user_id === uid, voted: !!r.voted, yes: r.yes + r.moved, no: r.no });
+
+app.get('/api/places', auth, wrap((req, res) => {
+  const q = QUARTIERS.some(x => x.id === req.query.quartier) ? req.query.quartier : QUARTIERS[0].id;
+  const rows = db.prepare(`SELECT p.*, (SELECT 1 FROM place_votes v WHERE v.place_id=p.id AND v.user_id=?) AS voted FROM places p WHERE p.quartier=? AND p.status IN ('confirmed','pending') ORDER BY p.id`).all(req.user.id, q);
+  res.json({ places: rows.map(r => placeOut(r, req.user.id)), min_votes: PLACE_MIN });
+}));
+
+app.post('/api/places', auth, rate('pl', 12, 3600000), wrap((req, res) => {
+  const b = req.body || {};
+  const quartier = QUARTIERS.some(q => q.id === b.quartier) ? b.quartier : null;
+  const type = PLACE_TYPES.includes(b.type) ? b.type : null;
+  const name = clean(b.name, 60), x = Number(b.x), z = Number(b.z);
+  if (!quartier || !type) return res.status(400).json({ error: 'Quartier ou type invalide.' });
+  if (name.length < 2) return res.status(400).json({ error: 'Écris le nom du lieu.' });
+  if (!Number.isFinite(x) || !Number.isFinite(z) || Math.abs(x) > 148 || Math.abs(z) > 148) return res.status(400).json({ error: 'Position hors du quartier.' });
+  const day = db.prepare("SELECT COUNT(*) n FROM places WHERE user_id=? AND created_at >= datetime('now','-1 day')").get(req.user.id).n;
+  if (day >= 8) return res.status(429).json({ error: 'Tu as déjà proposé beaucoup de lieux aujourd\'hui. Reviens demain !' });
+  const near = db.prepare("SELECT * FROM places WHERE quartier=? AND status!='rejected'").all(quartier).find(p => (norm(p.name) === norm(name) && Math.hypot(p.x - x, p.z - z) < 40) || (p.type === type && Math.hypot(p.x - x, p.z - z) < 8));
+  if (near) return res.status(409).json({ error: 'Ce lieu existe déjà ici (« ' + near.name + ' »). Tu peux le confirmer en passant près de lui.' });
+  const names = {}; for (const l of LANG_CODES) { const t = clean(b.names?.[l], 60); if (t) names[l] = t; }
+  const r = db.prepare('INSERT INTO places (quartier, type, name, names, x, z, user_id) VALUES (?,?,?,?,?,?,?)').run(quartier, type, name, JSON.stringify(names), Math.round(x * 10) / 10, Math.round(z * 10) / 10, req.user.id);
+  res.json({ id: Number(r.lastInsertRowid) });
+}));
+
+app.post('/api/places/:id/vote', auth, rate('pv', 120, 60000), wrap((req, res) => {
+  const p = db.prepare("SELECT * FROM places WHERE id=? AND status IN ('pending','confirmed')").get(Number(req.params.id));
+  if (!p) return res.status(404).json({ error: 'Lieu introuvable.' });
+  const v = ['yes', 'no', 'moved'].includes(req.body?.verdict) ? req.body.verdict : null;
+  if (!v) return res.status(400).json({ error: 'Vote invalide.' });
+  if (p.user_id === req.user.id) return res.status(400).json({ error: 'Tu ne peux pas voter pour ton propre lieu.' });
+  if (db.prepare('SELECT 1 FROM place_votes WHERE place_id=? AND user_id=?').get(p.id, req.user.id)) return res.status(409).json({ error: 'Déjà voté.' });
+  tx(() => {
+    db.prepare('INSERT INTO place_votes (place_id, user_id, verdict) VALUES (?,?,?)').run(p.id, req.user.id, v);
+    db.prepare(`UPDATE places SET ${v === 'yes' ? 'yes=yes+1' : v === 'no' ? 'no=no+1' : 'moved=moved+1'} WHERE id=?`).run(p.id);
+    db.prepare('UPDATE users SET points = points + 3 WHERE id=?').run(req.user.id);
+    recomputePlace(p.id);
+  });
+  const q = db.prepare('SELECT status FROM places WHERE id=?').get(p.id);
+  res.json({ ok: true, points_awarded: 3, status: q.status });
+}));
+
 // ======================= ADMIN =======================
 const adminTokens = new Map();
 app.post('/api/admin/login', rate('adm', 10, 600000), wrap((req, res) => {
@@ -353,6 +419,34 @@ app.get('/api/admin/players', admin, wrap((req, res) => {
     (SELECT COUNT(*) FROM translations t WHERE t.user_id=u.id AND t.status='validated') AS validated
     FROM users u ORDER BY u.points DESC LIMIT 500`).all());
 }));
+
+
+// lieux (co-construction)
+app.get('/api/admin/places', admin, wrap((req, res) => {
+  const w = ['1=1'], a = []; if (req.query.status) { w.push('p.status=?'); a.push(String(req.query.status)); } if (req.query.quartier) { w.push('p.quartier=?'); a.push(String(req.query.quartier)); }
+  const rows = db.prepare(`SELECT p.*, u.name AS user_name FROM places p LEFT JOIN users u ON u.id=p.user_id WHERE ${w.join(' AND ')} ORDER BY p.id DESC LIMIT 500`).all(...a);
+  res.json(rows.map(r => ({ ...r, names: JSON.parse(r.names || '{}'), ...(latlon(r.quartier, r.x, r.z) || {}) })));
+}));
+app.post('/api/admin/places', admin, wrap((req, res) => {
+  const b = req.body || {};
+  if (!QUARTIERS.some(q => q.id === b.quartier) || !PLACE_TYPES.includes(b.type) || clean(b.name, 60).length < 2 || !Number.isFinite(Number(b.x)) || !Number.isFinite(Number(b.z))) return res.status(400).json({ error: 'Champs invalides.' });
+  const names = {}; for (const l of LANG_CODES) { const t = clean(b.names?.[l], 60); if (t) names[l] = t; }
+  const r = db.prepare("INSERT INTO places (quartier, type, name, names, x, z, status, source) VALUES (?,?,?,?,?,?, 'confirmed', 'admin')").run(b.quartier, b.type, clean(b.name, 60), JSON.stringify(names), Number(b.x), Number(b.z));
+  res.json({ id: Number(r.lastInsertRowid) });
+}));
+app.patch('/api/admin/places/:id', admin, wrap((req, res) => {
+  const id = Number(req.params.id), b = req.body || {}, p = db.prepare('SELECT * FROM places WHERE id=?').get(id);
+  if (!p) return res.status(404).json({ error: 'Introuvable.' });
+  if (['pending', 'confirmed', 'rejected'].includes(b.status)) {
+    db.prepare('UPDATE places SET status=?, source=? WHERE id=?').run(b.status, b.status === 'pending' ? p.source : 'admin', id);
+    if (b.status === 'confirmed' && !p.paid && p.user_id) { db.prepare('UPDATE places SET paid=1 WHERE id=?').run(id); db.prepare('UPDATE users SET points = points + 15 WHERE id=?').run(p.user_id); }
+  }
+  if (typeof b.name === 'string' && clean(b.name, 60).length >= 2) db.prepare('UPDATE places SET name=? WHERE id=?').run(clean(b.name, 60), id);
+  if (PLACE_TYPES.includes(b.type)) db.prepare('UPDATE places SET type=? WHERE id=?').run(b.type, id);
+  if (Number.isFinite(Number(b.x)) && Number.isFinite(Number(b.z)) && b.x !== undefined) db.prepare('UPDATE places SET x=?, z=? WHERE id=?').run(Number(b.x), Number(b.z), id);
+  res.json({ ok: true });
+}));
+app.delete('/api/admin/places/:id', admin, wrap((req, res) => { db.prepare('DELETE FROM places WHERE id=?').run(Number(req.params.id)); res.json({ ok: true }); }));
 
 // clés d'API
 app.get('/api/admin/keys', admin, wrap((req, res) => res.json(db.prepare('SELECT id, prefix, label, active, calls, created_at, last_used FROM api_keys ORDER BY id DESC').all())));

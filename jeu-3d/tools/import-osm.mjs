@@ -4,6 +4,8 @@
 // Nécessite un accès Internet (Nominatim + Overpass). Zone importée : 300 m x 300 m autour du centre du quartier.
 // Pour un point précis : node tools/import-osm.mjs gounghin --center=12.3714,-1.5426
 import fs from 'node:fs';
+import os from 'node:os';
+import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { QUARTIERS } from '../server/content.js';
@@ -59,6 +61,38 @@ const poiType = t => {
 };
 const TYPE_W = { mosque: 3, church: 3, worship: 2, school: 3, market: 5, fuel: 2.5, bank: 2, health: 3, pharmacy: 1.5, food: 1, hotel: 1.5, gov: 2.5, sport: 2, shop: .6, other: .5 };
 
+
+// ---------- Overture Maps (bâtiments Microsoft/Google, lieux Meta/Microsoft…) : complète OpenStreetMap, facultatif ----------
+const overtureType = cat => {
+  const c = String(cat || '').toLowerCase();
+  if (/mosque/.test(c)) return 'mosque';
+  if (/church|cathedral|chapel|place_of_worship|religious/.test(c)) return 'church';
+  if (/school|college|university|education|kindergarten/.test(c)) return 'school';
+  if (/pharmacy/.test(c)) return 'pharmacy';
+  if (/hospital|clinic|health|doctor|dentist|medical/.test(c)) return 'health';
+  if (/gas_station|fuel|petrol/.test(c)) return 'fuel';
+  if (/bank|atm|financial|money_transfer/.test(c)) return 'bank';
+  if (/marketplace|^market|open_air_market/.test(c)) return 'market';
+  if (/restaurant|bar$|^bar|cafe|food|fast_food|pub|night_club|maquis/.test(c)) return 'food';
+  if (/hotel|lodging|guest_house|hostel|motel/.test(c)) return 'hotel';
+  if (/government|police|post_office|town_hall|courthouse|fire_station|embassy/.test(c)) return 'gov';
+  if (/sport|stadium|gym|football|playground/.test(c)) return 'sport';
+  if (/shop|store|retail|boutique|supermarket|grocery/.test(c)) return 'shop';
+  return 'other';
+};
+function runOverture(type, bboxArr, out) {
+  return new Promise(resolve => {
+    execFile('overturemaps', ['download', `--bbox=${bboxArr.join(',')}`, '-f', 'geojson', `--type=${type}`, '-o', out], { timeout: 6 * 60 * 1000, maxBuffer: 1 << 24 }, err => resolve(!err));
+  });
+}
+async function overtureFeatures(type, bboxArr) {
+  const fx = process.env.OVERTURE_FIXTURE_DIR;
+  const file = fx ? path.join(fx, type + '.geojson') : path.join(os.tmpdir(), `kan-overture-${type}-${process.pid}.geojson`);
+  if (!fx && !(await runOverture(type, bboxArr, file))) return null;
+  try { const j = JSON.parse(fs.readFileSync(file, 'utf8')); if (!fx) fs.rmSync(file, { force: true }); return j.features || []; } catch { return null; }
+}
+const ringCentroid = r => [r.reduce((s, p) => s + p[0], 0) / r.length, r.reduce((s, p) => s + p[1], 0) / r.length];
+
 async function importQuartier(q, centerArg) {
   console.log(`\n== ${q.name} ==`);
   const fixed = centerArg || (q.center ? q.center.join(',') : null);
@@ -82,6 +116,35 @@ async function importQuartier(q, centerArg) {
     if (ty) {
       const c = e.type === 'node' ? P0(e.lat, e.lon) : e.geometry ? (() => { const a = e.geometry.map(g => P0(g.lat, g.lon)); return [a.reduce((s, p) => s + p[0], 0) / a.length, a.reduce((s, p) => s + p[1], 0) / a.length]; })() : e.bounds ? P0((e.bounds.minlat + e.bounds.maxlat) / 2, (e.bounds.minlon + e.bounds.maxlon) / 2) : null;
       if (c) pois0.push({ type: ty, name: name || (ty === 'market' ? 'Marché' : ''), p: c });
+    }
+  }
+  // --- Overture : bâtiments et lieux en plus d'OpenStreetMap ---
+  if (process.env.OVERTURE !== '0') {
+    const bb = [lon0 - d / mLon, lat0 - d / mLat, lon0 + d / mLon, lat0 + d / mLat];
+    const [ob, op] = [await overtureFeatures('building', bb), await overtureFeatures('place', bb)];
+    if (ob === null && op === null) console.log('  (Overture indisponible ici : OpenStreetMap seul)');
+    else {
+      // grille des bâtiments OSM déjà connus, pour ne pas dupliquer
+      const cell = 25, grid = new Map(), key = (x, z) => Math.floor(x / cell) + ',' + Math.floor(z / cell);
+      for (const b of bld0) { const [cx, cz] = ringCentroid(b.pts); const k = key(cx, cz); (grid.get(k) || grid.set(k, []).get(k)).push([cx, cz]); }
+      const known = (cx, cz) => { for (let a = -1; a <= 1; a++) for (let c = -1; c <= 1; c++) for (const [x, z] of grid.get((Math.floor(cx / cell) + a) + ',' + (Math.floor(cz / cell) + c)) || []) if (Math.hypot(x - cx, z - cz) < 6) return true; return false; };
+      let nb = 0, np = 0;
+      for (const f of ob || []) {
+        const g = f.geometry; const rings = g?.type === 'Polygon' ? [g.coordinates[0]] : g?.type === 'MultiPolygon' ? g.coordinates.map(c => c[0]) : [];
+        for (const ring of rings) {
+          if (!ring || ring.length < 4) continue; const pts = ring.slice(0, -1).map(([lo, la]) => P0(la, lo)); const [cx, cz] = ringCentroid(pts);
+          if (known(cx, cz)) continue; const pr = f.properties || {}, fl = Number(pr.num_floors);
+          bld0.push({ pts, h: pr.height ? Math.min(Number(pr.height), 20) : fl ? fl * 3.1 : 3.2, tags: {} }); (grid.get(key(cx, cz)) || grid.set(key(cx, cz), []).get(key(cx, cz))).push([cx, cz]); nb++;
+        }
+      }
+      for (const f of op || []) {
+        const pr = f.properties || {}, name = pr.names?.primary || pr.name; if (!name || f.geometry?.type !== 'Point' || (pr.confidence != null && pr.confidence < .45)) continue;
+        const [lo, la] = f.geometry.coordinates, cat = pr.categories?.primary || pr.category || pr.categories?.main || '';
+        const c = P0(la, lo), ty = overtureType(cat);
+        if (pois0.some(q => q.name && q.name.toLowerCase() === name.toLowerCase() && Math.hypot(q.p[0] - c[0], q.p[1] - c[1]) < 60)) continue;
+        pois0.push({ type: ty, name, p: c }); np++;
+      }
+      console.log(`  Overture : +${nb} bâtiments, +${np} lieux`);
     }
   }
   // --- fenêtre de jeu 300 m x 300 m : celle qui contient le plus de lieux reconnaissables ---

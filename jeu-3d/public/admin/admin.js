@@ -17,7 +17,7 @@ $('#lf').onsubmit = async e => {
 };
 $('#out').onclick = () => { TOKEN = ''; sessionStorage.removeItem('kan.admin'); location.reload(); };
 
-const TABS = [['overview', 'Vue d\'ensemble'], ['translations', 'Traductions'], ['prompts', 'Phrases'], ['players', 'Joueurs'], ['keys', 'API de langue'], ['export', 'Export']];
+const TABS = [['overview', 'Vue d\'ensemble'], ['translations', 'Traductions'], ['prompts', 'Phrases'], ['places', 'Lieux'], ['players', 'Joueurs'], ['keys', 'API de langue'], ['export', 'Export']];
 let tab = 'overview';
 function start() {
   $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
@@ -33,7 +33,7 @@ const pct = (a, b) => b ? Math.round(a / b * 100) : 0;
 const VIEWS = {
   async overview() {
     const o = await api('GET', '/api/admin/overview'), t = o.totals;
-    const cards = [['players', 'Joueurs'], ['translations', 'Traductions'], ['validated', 'Validées'], ['pending', 'En attente'], ['rejected', 'Rejetées'], ['voice', 'Avec voix'], ['votes', 'Votes'], ['to_review', 'Santé à relire']];
+    const cards = [['places', 'Lieux'], ['players', 'Joueurs'], ['translations', 'Traductions'], ['validated', 'Validées'], ['pending', 'En attente'], ['rejected', 'Rejetées'], ['voice', 'Avec voix'], ['votes', 'Votes'], ['to_review', 'Santé à relire']];
     const max = Math.max(1, ...o.per_day.map(d => d.n));
     $('#main').innerHTML = `<div class="cards">${cards.map(([k, l]) => `<div class="card"><b>${t[k] ?? 0}</b><span>${l}</span></div>`).join('')}</div>
     <div class="grid2">
@@ -88,6 +88,34 @@ const VIEWS = {
       ${news ? '' : `<select id="pz">${Object.entries(ZONES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select><label><input type="checkbox" id="ps"> Santé (relecture avant export)</label>`}<label><input type="checkbox" id="pv" ${news ? 'checked' : ''}> À vérifier</label><div class="act"><button class="btn ghost" id="c">Annuler</button><button class="btn g" id="s">Créer</button></div>`);
     const go = news => { $('#c').onclick = closeModal; $('#s').onclick = async () => { try { await api('POST', '/api/admin/prompts', { text_fr: $('#pt').value, zone: news ? 'meeting' : $('#pz').value, sensitive: !news && $('#ps').checked, verify: $('#pv').checked, news }); closeModal(); VIEWS.prompts(); } catch (e) { alert(e.message); } }; };
     $('#np').onclick = () => { add(false); go(false); }; $('#nn').onclick = () => { add(true); go(true); };
+  },
+
+  async places(f = {}) {
+    f = { status: '', quartier: '', ...f };
+    const qs = new URLSearchParams(); if (f.status) qs.set('status', f.status); if (f.quartier) qs.set('quartier', f.quartier);
+    const ps = await api('GET', '/api/admin/places?' + qs);
+    const TYPES = { mosque: 'Mosquée', church: 'Église', school: 'École', market: 'Marché', health: 'Santé', pharmacy: 'Pharmacie', fuel: 'Station', bank: 'Banque', food: 'Restauration', hotel: 'Hôtel', gov: 'Administration', sport: 'Sport', shop: 'Boutique', junction: 'Carrefour', other: 'Autre' };
+    const QS = ['gounghin', 'dapoya', 'zogona', 'tanghin'];
+    $('#main').innerHTML = `<div class="filters"><select data-f="status"><option value="">Tous les statuts</option>${['pending', 'confirmed', 'rejected'].map(v => `<option value="${v}" ${f.status === v ? 'selected' : ''}>${{ pending: 'À confirmer', confirmed: 'Confirmés', rejected: 'Rejetés' }[v]}</option>`).join('')}</select>
+      <select data-f="quartier"><option value="">Tous les quartiers</option>${QS.map(v => `<option value="${v}" ${f.quartier === v ? 'selected' : ''}>${v}</option>`).join('')}</select><button class="btn ghost" id="addp">+ Ajouter un repère</button></div>
+    <table><tr><th>#</th><th>Lieu</th><th>Quartier</th><th>Statut</th><th>Position</th><th>Par</th><th>Actions</th></tr>${ps.map(p => `<tr><td>${p.id}</td>
+      <td><b>${esc(p.name)}</b><br><span class="tag">${TYPES[p.type] || p.type}</span>${Object.entries(p.names || {}).map(([l, t]) => ` <span class="mut">${LANGS[l] || l} : ${esc(t)}</span>`).join('')}</td><td>${esc(p.quartier)}</td>
+      <td><span class="tag ${p.status === 'confirmed' ? 'validated' : p.status === 'rejected' ? 'rejected' : 'pending'}">${p.status}</span><br><span class="mut">👍${p.yes + p.moved} 👎${p.no}</span></td>
+      <td class="mut">${p.x}, ${p.z}${p.lat ? `<br><a style="color:var(--gold)" target="_blank" href="https://www.openstreetmap.org/?mlat=${p.lat}&mlon=${p.lon}#map=19/${p.lat}/${p.lon}">${p.lat}, ${p.lon}</a>` : ''}</td>
+      <td>${esc(p.user_name || (p.source === 'admin' ? 'admin' : '—'))}</td>
+      <td><div class="act"><button class="btn s g" data-st="confirmed" data-id="${p.id}">✓</button><button class="btn s r" data-st="rejected" data-id="${p.id}">✗</button><button class="btn s ghost" data-ed="${p.id}">✎</button><button class="btn s ghost" data-del="${p.id}">🗑</button></div></td></tr>`).join('') || '<tr><td colspan="7" class="mut">Aucun lieu pour le moment.</td></tr>'}</table>`;
+    const reload = (x = {}) => VIEWS.places({ ...f, ...x });
+    document.querySelectorAll('[data-f]').forEach(el => el.onchange = () => reload({ [el.dataset.f]: el.value }));
+    document.querySelectorAll('[data-st]').forEach(b => b.onclick = async () => { await api('PATCH', '/api/admin/places/' + b.dataset.id, { status: b.dataset.st }); reload(); });
+    document.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if (confirm('Supprimer ce lieu ?')) { await api('DELETE', '/api/admin/places/' + b.dataset.del); reload(); } });
+    const typeSel = cur => `<select id="pt">${Object.entries(TYPES).map(([k, v]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${v}</option>`).join('')}</select>`;
+    document.querySelectorAll('[data-ed]').forEach(b => b.onclick = () => { const p = ps.find(x => x.id == b.dataset.ed);
+      modal(`<h3>Corriger le lieu #${p.id}</h3><input id="pn" value="${esc(p.name)}">${typeSel(p.type)}<div class="act"><input id="px" type="number" step="0.5" value="${p.x}" style="width:48%"><input id="pz" type="number" step="0.5" value="${p.z}" style="width:48%"></div><div class="act"><button class="btn ghost" id="c">Annuler</button><button class="btn g" id="s">Enregistrer</button></div>`);
+      $('#c').onclick = closeModal; $('#s').onclick = async () => { await api('PATCH', '/api/admin/places/' + p.id, { name: $('#pn').value, type: $('#pt').value, x: +$('#px').value, z: +$('#pz').value }); closeModal(); reload(); }; });
+    $('#addp').onclick = () => {
+      modal(`<h3>Ajouter un repère (confirmé tout de suite)</h3><select id="pq">${QS.map(v => `<option>${v}</option>`).join('')}</select><input id="pn" placeholder="Nom (ex. Marché de Gounghin)">${typeSel('shop')}<p class="mut" style="margin:0">Position dans le jeu (mètres depuis le centre : x vers l'est, z vers le sud, de −148 à 148). Astuce : un joueur peut aussi l'ajouter en jeu, tu confirmes ici.</p><div class="act"><input id="px" type="number" value="0" style="width:48%"><input id="pz" type="number" value="0" style="width:48%"></div><div class="act"><button class="btn ghost" id="c">Annuler</button><button class="btn g" id="s">Ajouter</button></div>`);
+      $('#c').onclick = closeModal; $('#s').onclick = async () => { try { await api('POST', '/api/admin/places', { quartier: $('#pq').value, name: $('#pn').value, type: $('#pt').value, x: +$('#px').value, z: +$('#pz').value }); closeModal(); reload(); } catch (e) { alert(e.message); } };
+    };
   },
 
   async players() {

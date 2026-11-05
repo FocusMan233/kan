@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/BufferGeometryUtils.js';
 import { rng } from './textures.js';
+import { DETAIL } from './quality.js';
 
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _p = new THREE.Vector3(), _s = new THREE.Vector3();
 export function M(x = 0, y = 0, z = 0, ry = 0, sx = 1, sy = sx, sz = sx, rx = 0, rz = 0) {
@@ -49,11 +50,11 @@ export class Batcher {
 // primitives réutilisables
 export const G = {
   box: new THREE.BoxGeometry(1, 1, 1),
-  cyl: new THREE.CylinderGeometry(1, 1, 1, 12),
+  cyl: new THREE.CylinderGeometry(1, 1, 1, DETAIL.seg),
   cyl6: new THREE.CylinderGeometry(1, 1, 1, 6),
-  cone: new THREE.ConeGeometry(1, 1, 10),
-  sphere: new THREE.SphereGeometry(1, 14, 10),
-  ico: new THREE.IcosahedronGeometry(1, 1),
+  cone: new THREE.ConeGeometry(1, 1, DETAIL.seg),
+  sphere: new THREE.SphereGeometry(1, DETAIL.sw, DETAIL.sh),
+  ico: new THREE.IcosahedronGeometry(1, DETAIL.ico),
   ico0: new THREE.IcosahedronGeometry(1, 0),
   plane: new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
 };
