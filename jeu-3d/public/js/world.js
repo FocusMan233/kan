@@ -5,6 +5,7 @@ import { rng, lateriteTexture, roadTexture, plasterTexture, roofTexture, pavingT
 import { PAL, house, hut, compoundWalls, tree, shrub, tuft, pole, wire, lamp, parkedMoto, motoModel, barrel, crate, chair, sign, addCollider, rectPoly, rectCollider, bench } from './props.js';
 import { buildHome, buildMarket, buildMaquis, buildTaxi, buildCSPS, buildMeeting, buildCulture, FOOTPRINTS } from './prefabs.js';
 import { buildCharacter } from './characters.js';
+import { CityLife } from './city.js';
 import { lmStyle, decorateBuilding, standaloneLandmark, streetSign } from './landmarks.js';
 
 export const HALF = 150;
@@ -83,6 +84,7 @@ export class World {
   }
 
   clear() {
+    this.city = null;
     for (const c of [...this.group.children]) { this.group.remove(c); c.traverse?.(o => { o.geometry?.dispose?.(); }); }
     this.npcs.clear(); this.ambient.length = 0; this.walkers.length = 0; this.traffic.length = 0; this.flags.length = 0; this.smokes.length = 0;
     this.colliders.length = 0; this.circles.length = 0; this.grid.clear(); this.zones.length = 0; this.anchors = {};
@@ -162,8 +164,7 @@ export class World {
     await tick(.85, 'Les habitants…');
     this._spawnNpcs(content, R);
     this._spawnAmbient(ctx, R);
-    this._spawnWalkers(R);
-    this._spawnTraffic(R);
+    this.city = new CityLife(this, R, randomSpec, this.quality);
     this._buildGrid();
     this._minimapStatic = null;
     await tick(1, 'Bienvenue !');
@@ -529,6 +530,11 @@ export class World {
     for (const c of this.circles) if (c.crown && Math.abs(c.x - x) < c.crown && Math.abs(c.z - z) < c.crown && Math.hypot(c.x - x, c.z - z) < c.crown) return true;
     return false;
   }
+  /** 'road' si le joueur est sur le goudron, sinon 'dust' */
+  surfaceAt(x, z) {
+    for (const r of this.roads) if (r.kind === 'asphalt') for (let i = 0; i < r.pts.length - 1; i++) if (segDist(x, z, r.pts[i][0], r.pts[i][1], r.pts[i + 1][0], r.pts[i + 1][1]) < r.w / 2) return 'road';
+    return 'dust';
+  }
   zoneAt(x, z) {
     let best = null, bd = 1e9;
     for (const zn of this.zones) { const d = Math.hypot(zn.x - x, zn.z - z); if (d < zn.r && d < bd) { bd = d; best = zn; } }
@@ -553,15 +559,7 @@ export class World {
       s.sp.scale.setScalar(.5 + k * 2.2); s.sp.material.opacity = Math.sin(k * 3.14) * .32;
     }
     for (const c of this.clouds) { c.position.x += dt * 2.2; if (c.position.x > 700) c.position.x = -700; }
-    for (const m of this.traffic) {
-      m.g.position.x += m.dir * m.speed * dt; if (m.g.position.x > 190) m.g.position.x = -190; if (m.g.position.x < -190) m.g.position.x = 190;
-      for (const w of m.wheels) w.rotation.x += m.dir * m.speed * dt / .3;
-    }
-    for (const w of this.walkers) {
-      w.x += w.dir * w.speed * dt; if (w.x > 140) w.dir = -1; if (w.x < -140) w.dir = 1;
-      w.char.group.position.set(w.x, 0, w.z); w.char.group.rotation.y = w.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
-      w.char.update(dt, { speed: w.speed, t });
-    }
+    this.city?.update(dt, t, playerPos);
     const R2 = 70 * 70;
     for (const a of this.ambient) {
       const d2 = (a.char.group.position.x - playerPos.x) ** 2 + (a.char.group.position.z - playerPos.z) ** 2;

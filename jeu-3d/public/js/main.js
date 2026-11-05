@@ -5,6 +5,7 @@ import { Api, LS } from './api.js';
 import { ClipRecorder } from './clip.js';
 import { quality, PIXEL_MAX } from './quality.js';
 import { LM } from './landmarks.js';
+import { Sound } from './audio.js';
 
 const $ = id => document.getElementById(id);
 const qs = new URLSearchParams(location.search);
@@ -406,6 +407,9 @@ function checkPlaceVote() {
     closeSheet();
   });
 }
+['pointerdown', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, () => Sound.resume(), { passive: true }));
+const btnSound = $('btnSound'); const syncSnd = () => { btnSound.textContent = Sound.on ? '🔊' : '🔇'; }; syncSnd();
+btnSound.onclick = () => { Sound.toggle(); syncSnd(); };
 $('btnPlace').onclick = () => G.mode === 'play' && addPlaceSheet();
 
 // ---------------------------------------------------------------- menu
@@ -523,8 +527,12 @@ function updatePlay(dt) {
   G.pos.x = THREE.MathUtils.clamp(G.pos.x, -HALF + 2, HALF - 2); G.pos.z = THREE.MathUtils.clamp(G.pos.z, -HALF + 2, HALF - 2);
   const pg = G.player.group; pg.position.set(G.pos.x, 0, G.pos.z); pg.rotation.y = G.ry;
   G.player.update(dt, { speed: G.speed < .3 ? 0 : G.speed, t: G.t, cheering: world.cheer && G.zoneKey === 'meeting' });
+  // pas : bruit selon le sol + léger balancement de la caméra
+  const walking = G.speed > .6 && !locked;
+  if (walking) { G.stepPh = (G.stepPh || 0) + dt * (G.speed > 5 ? 9.5 : 7.4); const ph = Math.floor(G.stepPh / Math.PI); if (ph !== G.stepN) { G.stepN = ph; Sound.step(world.surfaceAt(G.pos.x, G.pos.z), G.speed > 5); } }
+  const bob = walking ? Math.sin(G.stepPh * 1) * .035 : 0;
   // caméra
-  const c = G.cam, ty = 1.5; let dist = c.dist;
+  const c = G.cam, ty = 1.5 + bob; let dist = c.dist;
   const cp = c.pitch, hx = Math.sin(c.yaw) * Math.cos(cp), hz = Math.cos(c.yaw) * Math.cos(cp), hy = Math.sin(cp);
   while (dist > 1.6 && ((world._insideCollider(G.pos.x + hx * dist, G.pos.z + hz * dist, .3) && ty + hy * dist < 7) || world.inCrown(G.pos.x + hx * dist, G.pos.z + hz * dist, ty + hy * dist))) dist -= .5;
   const want = _v.set(G.pos.x + hx * dist, Math.max(.5, ty + hy * dist), G.pos.z + hz * dist);
@@ -596,7 +604,7 @@ function adaptResolution(dt) {
 function loop() {
   requestAnimationFrame(loop);
   const _n = performance.now(); const dt = Math.min((_n - _last) / 1000, .05); _last = _n; G.t += dt;
-  if (G.mode === 'play') { updatePlay(dt); world.update(dt, G.t, G.pos); adaptResolution(dt); }
+  if (G.mode === 'play') { updatePlay(dt); world.update(dt, G.t, G.pos); Sound.update(dt, G.t, world.city, G.pos, G.cam.yaw); adaptResolution(dt); }
   else if (G.mode === 'stage') updateStage(dt);
   else return;
   renderer.render(scene, camera);

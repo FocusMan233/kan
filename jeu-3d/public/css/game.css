@@ -118,3 +118,5 @@ video.preview { width: 100%; max-height: 52vh; border-radius: 14px; background: 
 
 @media (min-width: 900px) { #joy { opacity: .55; } .overlay { align-items: center; } }
 @media (max-height: 520px) { #joy { width: 104px; height: 104px; } #stick { left: 26px; top: 26px; } #mini { width: 92px; height: 92px; } #zoneName { top: calc(var(--sat) + 110px); } }
+
+#btnSound { position: fixed; top: 56px; left: 12px; z-index: 12; width: 40px; height: 40px; border-radius: 50%; border: 0; background: rgba(20,30,24,.72); color: #fff; font-size: 20px; backdrop-filter: blur(6px); }
