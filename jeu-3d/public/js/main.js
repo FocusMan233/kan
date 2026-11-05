@@ -562,9 +562,18 @@ function updatePlay(dt) {
   if (G.beacon) { G.beacon.ring.scale.setScalar(1 + Math.sin(G.t * 4) * .15); G.beacon.g.position.set(G.beacon.n.pos.x, 0, G.beacon.n.pos.z); }
   const ar = $('arrow');
   if (tg) {
-    const dx = tg.pos.x - G.pos.x, dz = tg.pos.z - G.pos.z, dd = Math.hypot(dx, dz);
-    if (dd > 5) { const ang = Math.atan2(dx, dz) - (G.cam.yaw + Math.PI); ar.classList.remove('hidden'); ar.querySelector('i').style.transform = `rotate(${(-ang * 180 / Math.PI + 180) % 360}deg)`; $('arrowDist').textContent = Math.round(dd) + ' m'; } else ar.classList.add('hidden');
-  } else ar.classList.add('hidden');
+    // chemin réel (contourne murs et bâtiments), recalculé régulièrement
+    const gk = tg.id + '|' + Math.round(G.pos.x / 3) + ',' + Math.round(G.pos.z / 3);
+    if (G.pathKey !== gk && G.t - (G.pathT || 0) > .8) { G.pathKey = gk; G.pathT = G.t; try { G.path = world.findPath(G.pos.x, G.pos.z, tg.pos.x, tg.pos.z); } catch { G.path = null; } }
+    const dx0 = tg.pos.x - G.pos.x, dz0 = tg.pos.z - G.pos.z, dd = Math.hypot(dx0, dz0);
+    let wx = tg.pos.x, wz = tg.pos.z, plen = dd;
+    if (G.path && G.path.length > 1) {
+      let k = 0; for (; k < G.path.length - 1; k++) if (Math.hypot(G.path[k][0] - G.pos.x, G.path[k][1] - G.pos.z) > 5) break;
+      wx = G.path[k][0]; wz = G.path[k][1];
+      plen = 0; for (let i = 1; i < G.path.length; i++) plen += Math.hypot(G.path[i][0] - G.path[i - 1][0], G.path[i][1] - G.path[i - 1][1]);
+    }
+    if (dd > 4) { const dx = wx - G.pos.x, dz = wz - G.pos.z, ang = Math.atan2(dx, dz) - (G.cam.yaw + Math.PI); ar.classList.remove('hidden'); ar.querySelector('i').style.transform = `rotate(${(-ang * 180 / Math.PI + 180) % 360}deg)`; $('arrowDist').textContent = Math.round(plen) + ' m'; } else ar.classList.add('hidden');
+  } else { ar.classList.add('hidden'); G.path = null; }
   drawMini(tg);
   // recording UI
   if (clip.state !== 'idle') { const e = clip.elapsed; $('recTime').textContent = `0:${String(Math.min(30, Math.floor(e))).padStart(2, '0')}`; }

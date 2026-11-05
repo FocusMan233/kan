@@ -117,7 +117,7 @@ export function compoundWalls(ctx, cx, cz, w, d, gate = 's', gateW = 2.6, col = 
   };
   const sides = { n: [x0, z0, x1, z0], s: [x0, z1, x1, z1], w: [x0, z0, x0, z1], e: [x1, z0, x1, z1] };
   for (const [k, [ax, az, bx, bz]] of Object.entries(sides)) {
-    if (k !== gate) { seg(ax, az, bx, bz); continue; }
+    if (!gate.includes(k)) { seg(ax, az, bx, bz); continue; }
     const horiz = ax !== bx, mid = horiz ? (ax + bx) / 2 : (az + bz) / 2;
     if (horiz) { seg(ax, az, mid - gateW / 2, bz); seg(mid + gateW / 2, az, bx, bz); const gc = pick(R, DOORS); for (const s of [-1, 1]) B.add(G.box, M(mid + s * gateW * .25, 1.1, az, 0, gateW * .48, 2.0, .06), gc, 'paint', .02); }
     else { seg(ax, az, bx, mid - gateW / 2); seg(ax, mid + gateW / 2, bx, bz); const gc = pick(R, DOORS); for (const s of [-1, 1]) B.add(G.box, M(ax, 1.1, mid + s * gateW * .25, 0, .06, 2.0, gateW * .48), gc, 'paint', .02); }

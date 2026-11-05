@@ -535,6 +535,37 @@ export class World {
     for (const r of this.roads) if (r.kind === 'asphalt') for (let i = 0; i < r.pts.length - 1; i++) if (segDist(x, z, r.pts[i][0], r.pts[i][1], r.pts[i + 1][0], r.pts[i + 1][1]) < r.w / 2) return 'road';
     return 'dust';
   }
+  /** vrai si un cycliste/piéton de rayon r ne peut pas se tenir en (x,z) */
+  blockedAt(x, z, r = .42) {
+    const p = this._bp || (this._bp = new THREE.Vector3()); p.set(x, 0, z); const ox = x, oz = z;
+    const sv = this.npcs; this.npcs = new Map(); this.resolve(p, r); this.npcs = sv;
+    return Math.abs(p.x - ox) > .02 || Math.abs(p.z - oz) > .02;
+  }
+  /** Chemin (liste de points) entre deux positions, en contournant murs et bâtiments (A* sur grille de 1,5 m). */
+  findPath(ax, az, bx, bz) {
+    const C = 1.5, N = Math.ceil((HALF + 10) * 2 / C), off = HALF + 10, key = (i, j) => i * N + j;
+    const ci = x => Math.max(0, Math.min(N - 1, Math.floor((x + off) / C))), wc = i => i * C - off + C / 2;
+    const free = new Map(), ok = (i, j) => { const k = key(i, j); let v = free.get(k); if (v === undefined) { v = !this.blockedAt(wc(i), wc(j), .5); free.set(k, v); } return v; };
+    let si = ci(ax), sj = ci(az), gi = ci(bx), gj = ci(bz);
+    const open = [[0, si, sj]], g = new Map([[key(si, sj), 0]]), from = new Map();
+    const h = (i, j) => Math.hypot(i - gi, j - gj);
+    let best = null, n = 0;
+    while (open.length && n++ < 30000) {
+      let bi = 0; for (let k = 1; k < open.length; k++) if (open[k][0] < open[bi][0]) bi = k;
+      const [, i, j] = open.splice(bi, 1)[0];
+      if (Math.hypot(i - gi, j - gj) <= 2.2) { best = [i, j]; break; }
+      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+        const ni = i + di, nj = j + dj; if (ni < 0 || nj < 0 || ni >= N || nj >= N) continue;
+        if (!ok(ni, nj)) continue; if (di && dj && (!ok(i + di, j) || !ok(i, j + dj))) continue;
+        const ng = g.get(key(i, j)) + (di && dj ? 1.414 : 1); if (ng >= (g.get(key(ni, nj)) ?? 1e9)) continue;
+        g.set(key(ni, nj), ng); from.set(key(ni, nj), key(i, j)); open.push([ng + h(ni, nj), ni, nj]);
+      }
+    }
+    if (!best) return null;
+    const out = []; let k = key(best[0], best[1]);
+    while (k !== undefined) { out.push([wc(Math.floor(k / N)), wc(k % N)]); k = from.get(k); }
+    out.reverse(); out.push([bx, bz]); return out;
+  }
   zoneAt(x, z) {
     let best = null, bd = 1e9;
     for (const zn of this.zones) { const d = Math.hypot(zn.x - x, zn.z - z); if (d < zn.r && d < bd) { bd = d; best = zn; } }

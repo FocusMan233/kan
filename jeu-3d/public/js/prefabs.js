@@ -15,7 +15,7 @@ export const FOOTPRINTS = {
 
 export function buildHome(ctx, ox, oz) {
   const { B, R } = ctx;
-  compoundWalls(ctx, ox, oz, 24, 17, 'n', 3.4, '#e6c9a0');
+  compoundWalls(ctx, ox, oz, 24, 17, 'nsw', 3.4, '#e6c9a0');
   house(ctx, ox, oz + 4.2, 10, 5, { ry: Math.PI, wall: '#e8d2a8', roof: '#8e949a', kind: 'mono', doorX: 1.5, h: 3.0 });
   hut(ctx, ox + 8, oz - .5, 1.9); hut(ctx, ox + 8, oz + 5, 1.6); granary(ctx, ox - 8.5, oz - 1);
   tree(ctx, ox - 8.5, oz + 4.5, 1.15, 'mango'); bench(ctx, ox - 6.6, oz + 4.3, Math.PI / 2, 2.0);
@@ -108,7 +108,7 @@ export function buildTaxi(ctx, ox, oz) {
 export function buildCSPS(ctx, ox, oz) {
   const { B, R } = ctx;
   ctx.decal('paving', ox, oz + 6, 44, 24);
-  compoundWalls(ctx, ox, oz, 64, 46, 's', 10, '#dfe9ef');
+  compoundWalls(ctx, ox, oz, 64, 46, 'snwe', 9, '#dfe9ef');  // portails sur les 4 côtés : on entre d'où qu'on vienne
   const wall = '#e9eef0', band = '#1d6fb8', bz = oz - 9;
   // bâtiment principal
   B.add(G.box, M(ox, 2.0, bz, 0, 27, 4.0, 8), wall, 'wall', 0); B.add(G.box, M(ox, .25, bz, 0, 27.2, .5, 8.2), '#9aa5ad', 'wall', 0);
