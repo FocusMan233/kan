@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#14231a">
+<title>Kan — Visite ton quartier</title>
+<link rel="stylesheet" href="/css/game.css">
+<script type="importmap">{"imports":{"three":"/vendor/three/three.module.js","three/addons/":"/vendor/three/addons/"}}</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="loading">
+  <div class="l-card">
+    <div class="logo">KAN</div>
+    <div class="l-sub">Visite ton quartier, parle ta langue</div>
+    <div class="bar"><i id="barFill"></i></div>
+    <div id="loadMsg">Chargement…</div>
+  </div>
+</div>
+
+<div id="onboard" class="overlay hidden">
+  <div class="panel" id="obPanel"></div>
+</div>
+
+<div id="hud" class="hidden">
+  <div id="chip"><span id="chipDot"></span><b id="chipName"></b><span id="chipPts">⭐ 0</span></div>
+  <div id="mini"><canvas id="miniCanvas" width="280" height="280"></canvas></div>
+  <div id="zoneName"></div>
+  <div id="objective" class="hidden"><div id="objTitle"></div><div id="objText"></div></div>
+  <div id="arrow" class="hidden"><i></i><span id="arrowDist"></span></div>
+  <div id="joy"><div id="stick"></div></div>
+  <div id="actions"><button id="btnTalk" class="hidden">💬 <span id="talkLabel">Parler</span></button></div>
+  <div id="dock">
+    <button id="btnMissions" aria-label="Missions">📋<small>Missions</small></button>
+    <button id="btnClip" aria-label="Clip">🎬<small>Clip 30 s</small></button>
+    <button id="btnMenu" aria-label="Menu">☰<small>Menu</small></button>
+  </div>
+  <div id="rec" class="hidden"><i></i><span id="recTime">0:00</span><button id="recStop">Arrêter</button></div>
+</div>
+
+<div id="sheet" class="sheet hidden"><div class="grab"></div><div id="sheetBody"></div></div>
+<div id="toast"></div>
+<div id="confetti"></div>
+
+<script type="module" src="/js/main.js"></script>
+</body>
+</html>

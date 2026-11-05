@@ -1,0 +1,16 @@
+services:
+  kan:
+    build: .
+    restart: unless-stopped
+    environment:
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?définis ADMIN_PASSWORD dans .env}
+      PORT: 3000
+      DATA_DIR: /data
+    volumes:
+      - kan-data:/data
+      - kan-maps:/app/public/data/quartiers
+    ports:
+      - "127.0.0.1:3000:3000"
+volumes:
+  kan-data:
+  kan-maps:
