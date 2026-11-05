@@ -303,6 +303,7 @@ export class World {
       const ruv = rg.attributes.uv, rp = rg.attributes.position; for (let i = 0; i < ruv.count; i++) ruv.setXY(i, rp.getX(i) / 3.2, rp.getZ(i) / 3.2);
       B.add(rg, null, L ? st.roof : pal.roofs[Math.floor(R() * pal.roofs.length)], 'roof', .06);
       addCollider(ctx, pts);
+      this._facade(ctx, pts, h, L ? st : null);
       if (L) { L.used = true; L.x = cx; L.z = cz; decorateBuilding(ctx, L, { minx, maxx, minz, maxz, cx, cz, h }, this._dirToRoad(cx, cz)); }
     }
     // repères sans bâtiment dans OSM : petit bâtiment-repère
@@ -313,6 +314,41 @@ export class World {
       let i = Math.floor(r.pts.length / 2); const a = r.pts[Math.max(0, i - 1)], b2 = r.pts[Math.min(r.pts.length - 1, i + 1)];
       streetSign(ctx, s.name, r.pts[i][0], r.pts[i][1], b2[0] - a[0], b2[1] - a[1], r.w || 5);
     }
+  }
+
+  /** Détails de façade : socle, fenêtres, porte côté rue, rebord de toit, parfois un château d'eau. */
+  _facade(ctx, pts, h, st) {
+    const { B, R } = ctx, n = pts.length;
+    const inside = (x, z) => { let c = false; for (let i = 0, j = n - 1; i < n; j = i++) { const [xi, zi] = pts[i], [xj, zj] = pts[j]; if ((zi > z) !== (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi) c = !c; } return c; };
+    let doorEdge = -1, bd = 1e9;
+    const E = [];
+    for (let i = 0; i < n; i++) {
+      const [ax, az] = pts[i], [bx, bz] = pts[(i + 1) % n], dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz); if (len < 2.4) { E.push(null); continue; }
+      const ux = dx / len, uz = dz / len; let nx = uz, nz = -ux; const mx = (ax + bx) / 2, mz = (az + bz) / 2;
+      if (inside(mx + nx * .4, mz + nz * .4)) { nx = -nx; nz = -nz; }
+      const dr = distToRoads(this.roads, mx, mz); if (dr < bd && len >= 3) { bd = dr; doorEdge = i; }
+      E.push({ ax, az, ux, uz, nx, nz, len, mx, mz, ry: -Math.atan2(dz, dx) });
+    }
+    E.forEach((e, i) => {
+      if (!e) return;
+      B.add(G.box, M(e.mx + e.nx * .04, .22, e.mz + e.nz * .04, e.ry, e.len, .44, .1), '#8d7a68', 'wall', .02);
+      B.add(G.box, M(e.mx + e.nx * .06, h + .12, e.mz + e.nz * .06, e.ry, e.len, .3, .14), '#6f6a64', 'wall', .02);
+      const cnt = Math.floor((e.len - 1.2) / 2.3);
+      for (let k = 0; k < cnt; k++) {
+        const t = -e.len / 2 + .6 + (k + .5) * (e.len - 1.2) / cnt;
+        if (i === doorEdge && k === Math.floor(cnt / 2)) {
+          B.add(G.box, M(e.mx + e.ux * t + e.nx * .05, 1.05, e.mz + e.uz * t + e.nz * .05, e.ry, 1.1, 2.1, .12), ['#2e5e8c', '#7a3b1d', '#2f6b4a', '#a23b2a'][Math.floor(R() * 4)], 'paint', 0);
+          continue;
+        }
+        if (h < 2.8 || R() < .12) continue;
+        const wx = e.mx + e.ux * t + e.nx * .04, wz = e.mz + e.uz * t + e.nz * .04;
+        B.add(G.box, M(wx, 1.7, wz, e.ry, .95, 1.05, .1), '#1c2833', 'paint', 0);
+        B.add(G.box, M(wx + e.nx * .02, 1.7, wz + e.nz * .02, e.ry, 1.1, .08, .12), '#cfc8bc', 'paint', 0);
+        B.add(G.box, M(wx + e.nx * .02, 1.7, wz + e.nz * .02, e.ry, .06, 1.05, .12), '#cfc8bc', 'paint', 0);
+        if (h > 6.2) B.add(G.box, M(wx, 4.3, wz, e.ry, .95, 1.05, .1), '#1c2833', 'paint', 0);
+      }
+    });
+    if (!st && R() < .12) { const e = pts.reduce((a, p) => [a[0] + p[0] / n, a[1] + p[1] / n], [0, 0]); B.add(G.cyl, M(e[0], h + 1.1, e[1], 0, 1.1, 1.8, 1.1), '#2b6cb0', 'paint', 0); }
   }
 
   /** Lieux confirmés par les joueurs (co-construction) : construits comme les repères OSM. */
