@@ -131,10 +131,12 @@ app.post('/api/translate', auth, rate('tr', 60, 60000), wrap((req, res) => {
   const langs = JSON.parse(req.user.langs || '[]');
   const lang = String(b.lang || '');
   if (!LANG_CODES.includes(lang) || !langs.includes(lang)) return res.status(400).json({ error: 'Langue non autorisée.' });
-  const text = clean(b.text, 500);
-  if (text.length < 2) return res.status(400).json({ error: 'Écris ta traduction.' });
-  if (norm(text) === norm(p.text_fr)) return res.status(400).json({ error: 'Écris la phrase dans ta langue, pas en français.' });
+  let text = clean(b.text, 500);
+  const voiceOnly = b.voice === true && text.length === 0;   // l'écriture n'est pas obligatoire : la voix suffit (le fichier audio suit)
+  if (!voiceOnly && text.length < 2) return res.status(400).json({ error: 'Écris ta traduction ou enregistre ta voix.' });
+  if (text && norm(text) === norm(p.text_fr)) return res.status(400).json({ error: 'Écris la phrase dans ta langue, pas en français.' });
   const ex = db.prepare('SELECT * FROM translations WHERE prompt_id=? AND user_id=? AND lang=?').get(p.id, req.user.id, lang);
+  if (voiceOnly && ex) text = ex.text || '';
   let id, awarded = 0;
   tx(() => {
     if (ex) {
@@ -183,7 +185,7 @@ app.get('/api/listen', auth, rate('li', 90, 60000), wrap((req, res) => {
   const ph = langs.map(() => '?').join(',');
   const t = db.prepare(`SELECT t.id, t.lang, t.text, t.audio_file, t.prompt_id, p.zone
     FROM translations t JOIN prompts p ON p.id=t.prompt_id
-    WHERE COALESCE(t.user_id,0) != ? AND t.lang IN (${ph}) AND t.status != 'rejected' AND COALESCE(t.admin_status,'') != 'rejected' AND p.active=1
+    WHERE COALESCE(t.user_id,0) != ? AND t.lang IN (${ph}) AND t.status != 'rejected' AND COALESCE(t.admin_status,'') != 'rejected' AND p.active=1 AND (t.text != '' OR t.audio_file IS NOT NULL)
       AND NOT EXISTS (SELECT 1 FROM votes v WHERE v.translation_id=t.id AND v.user_id=?)
     ORDER BY (p.zone=?) DESC, (t.status='pending') DESC, (t.yes+t.no) ASC, RANDOM() LIMIT 1`)
     .get(req.user.id, ...langs, req.user.id, zone);
@@ -436,7 +438,7 @@ v1.get('/translate', wrap((req, res) => {
   const toFr = source !== 'fr';
   const lang = toFr ? source : target;
   if (!LANG_CODES.includes(lang)) return res.status(400).json({ error: `Langue inconnue. Utilise : ${LANG_CODES.join(', ')} (et fr).` });
-  const rows = db.prepare(`SELECT t.id, p.text_fr, t.text, t.yes, t.no FROM translations t JOIN prompts p ON p.id=t.prompt_id WHERE ${ELIGIBLE_SQL} AND t.lang=?`).all(lang);
+  const rows = db.prepare(`SELECT t.id, p.text_fr, t.text, t.yes, t.no FROM translations t JOIN prompts p ON p.id=t.prompt_id WHERE ${ELIGIBLE_SQL} AND t.lang=? AND t.text != ''`).all(lang);
   const q = norm(text), qg = bigrams(q);
   const scored = rows.map(r => {
     const ref = norm(toFr ? r.text : r.text_fr);

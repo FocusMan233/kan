@@ -146,7 +146,7 @@ function stepQuartier(err = '') {
 async function enterGame(quartierId) {
   const u = G.user, C = G.content;
   const q = C.quartiers.find(x => x.id === (quartierId || u.quartier)) || C.quartiers[0];
-  G.mode = 'boot'; G.mission = null; clearBeacon();
+  G.mode = 'boot'; G.mission = null; clearBeacon(); G.lmSeen = new Set();
   $('hud').classList.add('hidden'); showLoading(true); progress(0, 'Chargement de ' + q.name + '…');
   await world.build(q, C, progress);
   G.quartier = q;
@@ -218,7 +218,17 @@ function clearBeacon() { if (G.beacon) { scene.remove(G.beacon.g); G.beacon = nu
 // ---------------------------------------------------------------- dialogues
 let mic = null;
 function stopMic(discard) { if (mic) { try { mic.rec.state !== 'inactive' && mic.rec.stop(); } catch {} mic.stream.getTracks().forEach(t => t.stop()); if (discard) mic.blob = null; clearInterval(mic.timer); mic = null; } }
-function speakFr(text) { try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = 'fr-FR'; u.rate = .95; speechSynthesis.speak(u); } catch {} }
+let frVoice = null;
+function pickFrVoice() { try { const v = speechSynthesis.getVoices().filter(x => /^fr/i.test(x.lang)); frVoice = v.find(x => /fr-FR/i.test(x.lang) && /google|natural|online/i.test(x.name)) || v.find(x => /fr-FR/i.test(x.lang)) || v[0] || null; } catch {} }
+try { speechSynthesis.onvoiceschanged = pickFrVoice; pickFrVoice(); } catch {}
+function speakFr(text, def) {
+  try {
+    speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = 'fr-FR'; if (!frVoice) pickFrVoice(); if (frVoice) u.voice = frVoice;
+    const child = def?.age === 'child', elder = def?.age === 'elder', man = def?.gender === 'm';
+    u.rate = elder ? .85 : .95; u.pitch = child ? 1.55 : man ? .8 : elder ? .9 : 1.12; u.volume = 1;
+    speechSynthesis.speak(u);
+  } catch {}
+}
 
 function talk() {
   if (G.busy || G.mode !== 'play') return;
@@ -234,45 +244,60 @@ function faceNpc(n) {
   G.ry = Math.atan2(-dx, -dz);
 }
 
-function translateDialog(n) {
+function translateDialog(n, keep = {}) {
   const m = G.mission, s = m.steps[G.step], langs = G.user.langs;
-  let lang = G.lang && langs.includes(G.lang) ? G.lang : langs[0], recorded = null;
+  let lang = G.lang && langs.includes(G.lang) ? G.lang : langs[0], recorded = keep.recorded || null, recUrl = keep.recUrl || null;
   faceNpc(n); n.talking = true;
   const langName = c => G.content.languages.find(l => l.code === c)?.name || c;
   const micOk = !!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
   const body = openSheet(`<div style="font-size:13px;color:var(--mut)">${esc(n.def.name)} · ${esc(n.def.role)}</div>
-  <div class="say">« ${esc(s.say)} »<button class="tts" id="tts">🔊</button></div>
+  <div class="say">« ${esc(s.say)} »<button class="tts" id="tts">🔊 Réécouter</button></div>
   ${m.intro && G.step === 0 ? `<p class="lead" style="font-size:13.5px">${esc(m.intro)}</p>` : ''}
   ${langs.length > 1 ? `<div class="tabs">${langs.map(l => `<button class="chip ${l === lang ? 'on' : ''}" data-l="${l}">${esc(langName(l))}</button>`).join('')}</div>` : ''}
-  <div class="field"><label>Traduis en ${esc(langName(lang))}</label><textarea id="tr" rows="3" placeholder="Écris la phrase en ${esc(langName(lang))}…"></textarea></div>
-  ${micOk ? `<div class="row" style="margin-bottom:10px"><button class="btn ghost" id="micBtn">🎙️ Dire à voix haute</button><span id="micInfo" style="color:var(--mut);font-size:13px"></span></div>` : ''}
+  <p class="lead" style="margin:4px 0 8px">Dis cette phrase en <b>${esc(langName(lang))}</b>${micOk ? '' : ' (écris-la, le micro n\'est pas disponible)'} :</p>
+  ${micOk ? `<button class="btn red" id="micBtn" style="width:100%;font-size:19px;padding:16px">${recorded ? '🔁 Refaire' : '🎙️ Appuie et parle'}</button>
+  <div id="micInfo" style="color:var(--mut);font-size:13px;text-align:center;margin:6px 0"></div>
+  <audio id="prev" controls ${recUrl ? `src="${recUrl}"` : 'class="hidden"'} style="width:100%;margin-bottom:8px"></audio>` : ''}
+  <details ${micOk ? '' : 'open'} style="margin:6px 0 12px"><summary style="color:var(--mut);font-size:14px;padding:6px 0">✍️ Écrire aussi (facultatif)</summary>
+  <textarea id="tr" rows="2" placeholder="La phrase en ${esc(langName(lang))}…" style="margin-top:6px">${esc(keep.text || '')}</textarea></details>
   <div class="row"><button class="btn ghost" id="skip">Passer</button><button class="btn green" id="send">Envoyer</button></div>`, { lock: true });
-  const close = () => { n.talking = false; stopMic(true); };
-  $('tts').onclick = () => speakFr(s.say);
-  body.querySelectorAll('[data-l]').forEach(b => b.onclick = () => { lang = G.lang = b.dataset.l; const txt = $('tr').value; translateDialogRedraw(); function translateDialogRedraw() { close(); translateDialog(n); setTimeout(() => $('tr').value = txt, 0); } });
+  const close = () => { n.talking = false; try { speechSynthesis.cancel(); } catch {} stopMic(true); };
+  const refreshSend = () => { $('send').disabled = !(recorded || ($('tr').value.trim().length >= 2)); };
+  const say = () => { speakFr(s.say, n.def); };
+  $('tts').onclick = say;
+  setTimeout(say, 250);                          // la phrase est dite à voix haute dès l'ouverture
+  $('tr').oninput = refreshSend; refreshSend();
+  body.querySelectorAll('[data-l]').forEach(b => b.onclick = () => { lang = G.lang = b.dataset.l; const keepNow = { recorded, recUrl, text: $('tr').value }; n.talking = false; translateDialog(n, keepNow); });
   $('skip').onclick = () => { close(); closeSheet(); advance(false); };
   if (micOk) $('micBtn').onclick = async () => {
     const btn = $('micBtn'), info = $('micInfo');
     if (mic?.rec?.state === 'recording') { mic.rec.stop(); return; }
+    try { speechSynthesis.cancel(); } catch {}
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
       const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].find(t => MediaRecorder.isTypeSupported(t)) || '';
       const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined), chunks = [];
       mic = { rec, stream, blob: null, t0: Date.now() };
       rec.ondataavailable = e => e.data.size && chunks.push(e.data);
-      rec.onstop = () => { clearInterval(mic?.timer); stream.getTracks().forEach(t => t.stop()); recorded = new Blob(chunks, { type: rec.mimeType || 'audio/webm' }); if ($('micBtn')) { $('micBtn').textContent = '🎙️ Réécouter / refaire'; info.textContent = '✅ Voix enregistrée'; } mic = null; };
-      rec.start(); btn.textContent = '⏹️ Arrêter'; mic.timer = setInterval(() => { const t = (Date.now() - mic.t0) / 1000; info.textContent = '● ' + t.toFixed(0) + ' s'; if (t > 25) rec.stop(); }, 300);
-    } catch (e) { info.textContent = 'Micro indisponible (il faut HTTPS et ton accord).'; }
+      rec.onstop = () => {
+        clearInterval(mic?.timer); stream.getTracks().forEach(t => t.stop()); mic = null;
+        const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+        if (blob.size < 1500) { if ($('micInfo')) $('micInfo').textContent = 'Trop court, recommence.'; if ($('micBtn')) $('micBtn').textContent = '🎙️ Appuie et parle'; return; }
+        recorded = blob; if (recUrl) URL.revokeObjectURL(recUrl); recUrl = URL.createObjectURL(blob);
+        if ($('micBtn')) { $('micBtn').textContent = '🔁 Refaire'; $('micInfo').textContent = '✅ Voix enregistrée — réécoute-la ci-dessous'; const a = $('prev'); a.src = recUrl; a.classList.remove('hidden'); refreshSend(); }
+      };
+      rec.start(); btn.textContent = '⏹️ Arrêter'; mic.timer = setInterval(() => { const t = (Date.now() - mic.t0) / 1000; info.textContent = '● J\'écoute… ' + t.toFixed(0) + ' s'; if (t > 25) rec.stop(); }, 300);
+    } catch (e) { info.textContent = 'Micro indisponible : autorise le micro dans ton navigateur (il faut le HTTPS).'; }
   };
   $('send').onclick = async () => {
     const text = $('tr').value.trim();
-    if (text.length < 2) return toast('Écris ta traduction.');
+    if (!recorded && text.length < 2) return toast('Parle, ou écris ta traduction.');
     $('send').disabled = true;
-    if (mic?.rec?.state === 'recording') { mic.rec.stop(); await sleep(250); }
+    if (mic?.rec?.state === 'recording') { mic.rec.stop(); await sleep(300); }
     try {
-      const r = await Api.translate(s.key, lang, text); let pts = r.points_awarded || 0;
+      const r = await Api.translate(s.key, lang, text, !text && !!recorded); let pts = r.points_awarded || 0;
       if (recorded) { try { const a = await Api.uploadAudio(r.id, recorded); pts += a.points_awarded || 0; } catch (e) { toast('Voix non envoyée : ' + e.message); } }
-      addPoints(pts); clip.setCaption(s.say, text, langName(lang));
+      addPoints(pts); clip.setCaption(s.say, text || '🎙️ …', langName(lang));
       close(); closeSheet(); toast(pts ? `Merci ! +${pts}⭐` : 'Merci, traduction mise à jour'); advance(true);
     } catch (e) { $('send').disabled = false; toast(e.message, 3500); }
   };
@@ -311,12 +336,12 @@ async function listenDialog(n) {
   n.talking = true;
   const langName = G.content.languages.find(l => l.code === task.lang)?.name || task.lang;
   const body = openSheet(`<div style="font-size:13px;color:var(--mut)">${esc(n.def.name)} · ${esc(n.def.role)}</div>
-  <div class="say local"><span class="lang">${esc(langName)}</span>« ${esc(task.text)} »${task.audio_url ? '<button class="tts" id="play">▶️</button>' : ''}</div>
+  <div class="say local"><span class="lang">${esc(langName)}</span>${task.text ? `« ${esc(task.text)} »` : '🎧 Écoute ce que dit le joueur'}${task.audio_url ? '<button class="tts" id="play">▶️ Écouter</button>' : ''}</div>
   <p class="lead" style="margin-bottom:4px">Un autre joueur a écrit ça. Qu'est-ce que ça veut dire ?</p>
   <div class="opts">${task.options.map(o => `<button class="opt" data-p="${o.prompt_id}">${esc(o.text)}</button>`).join('')}</div>
   <div class="row"><button class="btn ghost" id="flag">🚩 Ce n'est pas du ${esc(langName)}</button><button class="btn ghost" id="shClose">Fermer</button></div>`, { lock: true });
   let url = null;
-  if ($('play')) $('play').onclick = async () => { try { url = url || await Api.audioBlobUrl(task.audio_url); new Audio(url).play(); } catch { toast('Audio indisponible'); } };
+  if ($('play')) { $('play').onclick = async () => { try { url = url || await Api.audioBlobUrl(task.audio_url); new Audio(url).play(); } catch { toast('Audio indisponible'); } }; $('play').click(); }
   const done = async (chosen, flagged) => {
     body.querySelectorAll('.opt,#flag').forEach(b => b.disabled = true);
     try {
@@ -459,6 +484,11 @@ function updatePlay(dt) {
     G.zoneKey = key; const zn = $('zoneName');
     if (key) { const Z = G.content.zones[key]; zn.textContent = `${Z.icon} ${Z.name}`; zn.classList.add('show'); setTimeout(() => zn.classList.remove('show'), 3000); } else zn.classList.remove('show');
     world.cheer = key === 'meeting';
+  }
+  // repères du quartier : on affiche le nom quand on s'en approche
+  if (world.landmarks?.length && !(G.lmT > G.t)) {
+    G.lmSeen = G.lmSeen || new Set();
+    for (const L of world.landmarks) if (L.name && !G.lmSeen.has(L.name) && Math.hypot(L.x - G.pos.x, L.z - G.pos.z) < 16) { G.lmSeen.add(L.name); toast('📍 ' + L.name, 2600); G.lmT = G.t + 3; break; }
   }
   // bouton parler
   const near = world.nearestNpc(G.pos, 3.6), bt = $('btnTalk');

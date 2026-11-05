@@ -1,6 +1,6 @@
 # Kan — jeu 3D pour collecter du mooré et du dioula
 
-Le joueur choisit son quartier de Ouagadougou, se promène en 3D, et traduit des phrases françaises (marché, taxi-moto, maquis, centre de santé, meeting, coin culturel) dans sa langue, à l'écrit et/ou à la voix. Les joueurs valident les traductions des autres en répondant à des tâches « écouter ». Une partie admin et une **API de langue** exposent les données validées.
+Le joueur choisit son quartier de Ouagadougou, se promène en 3D, et traduit des phrases françaises (marché, taxi-moto, maquis, centre de santé, meeting, coin culturel) dans sa langue, à l'écrit et/ou à la voix. Écrire n'est pas obligatoire : le joueur peut seulement parler (la voix suffit). Les phrases sans texte apparaissent « à transcrire » dans l'admin. Les personnages disent leur phrase à voix haute (synthèse vocale du téléphone, en français). Les joueurs valident les traductions des autres en répondant à des tâches « écouter ». Une partie admin et une **API de langue** exposent les données validées.
 
 ## Lancer
 ```bash
@@ -19,6 +19,9 @@ node tools/import-osm.mjs              # les 4 quartiers (OpenStreetMap : rues, 
 node tools/import-osm.mjs gounghin --center=12.3714,-1.5426   # centre précis si besoin
 ```
 Ça écrit `public/data/quartiers/<id>.json` ; le jeu l'utilise automatiquement (badge « Carte réelle ✓ »). Zone : 300 m × 300 m autour du centre. Pense à citer « © contributeurs OpenStreetMap ». Les quartiers sont dans `server/content.js`.
+
+### Rendre un quartier fidèle
+L'import choisit automatiquement, dans un rayon de ~850 m autour du centre trouvé par Nominatim, la fenêtre de 300 m qui contient le plus de lieux nommés (mosquées, églises, écoles, marché, stations, banques…). Ces lieux sont construits dans le jeu **avec leur vrai nom** (plaque, minaret, croix, auvent de station…) et les noms de rues sont affichés sur des plaques vertes. Si la fenêtre choisie n'est pas la bonne : `node tools/import-osm.mjs gounghin --center=LAT,LON` (clic droit sur Google Maps → copier les coordonnées), ou ajoute `center: [lat, lon]` au quartier dans `server/content.js`.
 
 ## Contenu
 `server/content.js` : quartiers, personnages, missions et phrases. **Les phrases de santé doivent être relues par un professionnel de santé**, et les « bonnes nouvelles » (missions m2, c2, flash info) sont des exemples à **vérifier/remplacer** (admin → Phrases). Les traductions de santé ne sortent dans l'API qu'après ton approbation (admin → Traductions → ✓).

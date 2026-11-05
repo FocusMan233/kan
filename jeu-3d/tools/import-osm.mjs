@@ -42,35 +42,75 @@ function clipSeg(a, b, L = HALF + 8) { // Liang–Barsky : découpe un segment a
 function clipLine(pts) { const out = []; let cur = []; for (let i = 0; i < pts.length - 1; i++) { const s = clipSeg(pts[i], pts[i + 1]); if (!s) { if (cur.length > 1) out.push(cur); cur = []; continue; } const [p, q] = s; if (!cur.length) cur.push(p); else if (Math.hypot(cur[cur.length - 1][0] - p[0], cur[cur.length - 1][1] - p[1]) > .01) { out.push(cur); cur = [p]; } cur.push(q); } if (cur.length > 1) out.push(cur); return out.map(l => l.map(([x, z]) => [Math.round(x * 10) / 10, Math.round(z * 10) / 10])); }
 function distToSeg(px, pz, a, b) { const dx = b[0] - a[0], dz = b[1] - a[1], l = dx * dx + dz * dz || 1; let t = ((px - a[0]) * dx + (pz - a[1]) * dz) / l; t = Math.max(0, Math.min(1, t)); return Math.hypot(px - a[0] - t * dx, pz - a[1] - t * dz); }
 
+const poiType = t => {
+  const a = t.amenity, sh = t.shop, b = t.building;
+  if (a === 'place_of_worship' || b === 'mosque' || b === 'church' || b === 'cathedral') return (t.religion === 'muslim' || b === 'mosque') ? 'mosque' : (t.religion === 'christian' || b === 'church' || b === 'cathedral') ? 'church' : 'worship';
+  if (/^(school|college|university|kindergarten)$/.test(a)) return 'school';
+  if (a === 'fuel') return 'fuel';
+  if (a === 'marketplace' || sh === 'market') return 'market';
+  if (/^(bank|atm|bureau_de_change)$/.test(a)) return 'bank';
+  if (/^(hospital|clinic|doctors|pharmacy)$/.test(a)) return a === 'pharmacy' ? 'pharmacy' : 'health';
+  if (/^(restaurant|bar|cafe|fast_food|pub|nightclub)$/.test(a)) return 'food';
+  if (t.tourism && /hotel|guest_house|hostel|motel/.test(t.tourism)) return 'hotel';
+  if (/^(police|townhall|courthouse|post_office|fire_station)$/.test(a)) return 'gov';
+  if (t.leisure && /pitch|stadium|sports_centre/.test(t.leisure)) return 'sport';
+  if (sh) return 'shop';
+  return a || t.tourism || t.leisure ? 'other' : null;
+};
+const TYPE_W = { mosque: 3, church: 3, worship: 2, school: 3, market: 5, fuel: 2.5, bank: 2, health: 3, pharmacy: 1.5, food: 1, hotel: 1.5, gov: 2.5, sport: 2, shop: .6, other: .5 };
+
 async function importQuartier(q, centerArg) {
   console.log(`\n== ${q.name} ==`);
-  const [lat0, lon0] = centerArg ? centerArg.split(',').map(Number) : await geocode(q.geocode);
-  const mLat = 111320, mLon = 111320 * Math.cos(lat0 * Math.PI / 180), d = HALF + 25;
+  const fixed = centerArg || (q.center ? q.center.join(',') : null);
+  const [lat0, lon0] = fixed ? fixed.split(',').map(Number) : await geocode(q.geocode);
+  const mLat = 111320, mLon = 111320 * Math.cos(lat0 * Math.PI / 180), SEARCH = fixed ? 0 : 850, d = SEARCH + HALF + 30;
   const bbox = [lat0 - d / mLat, lon0 - d / mLon, lat0 + d / mLat, lon0 + d / mLon].join(',');
-  const data = await overpass(`[out:json][timeout:60];(way["highway"](${bbox});way["building"](${bbox});node["natural"="tree"](${bbox});nwr["amenity"~"marketplace|clinic|hospital|doctors|bar|restaurant|place_of_worship|school"](${bbox});nwr["shop"="market"](${bbox}););out geom;`);
-  const P = (lat, lon) => [Math.round((lon - lon0) * mLon * 10) / 10, Math.round(-(lat - lat0) * mLat * 10) / 10]; // x est, z sud
-  const roads = [], buildings = [], trees = [], pois = [];
+  const data = await overpass(`[out:json][timeout:90];(way["highway"](${bbox});way["building"](${bbox});node["natural"="tree"](${bbox});nwr["name"]["amenity"](${bbox});nwr["name"]["shop"](${bbox});nwr["name"]["tourism"](${bbox});nwr["name"]["leisure"](${bbox});nwr["amenity"="marketplace"](${bbox});nwr["shop"="market"](${bbox}););out geom;`);
+  const P0 = (lat, lon) => [(lon - lon0) * mLon, -(lat - lat0) * mLat];   // mètres : x est, z sud
+  const roads0 = [], bld0 = [], trees0 = [], pois0 = [];
   for (const e of data.elements) {
     const t = e.tags || {};
-    if (e.type === 'node' && t.natural === 'tree') { const p = P(e.lat, e.lon); if (inside(p)) trees.push(p); continue; }
+    if (e.type === 'node' && t.natural === 'tree') { trees0.push(P0(e.lat, e.lon)); continue; }
     if (e.type === 'way' && t.highway && ROAD[t.highway] && e.geometry) {
-      const pts = e.geometry.map(g => P(g.lat, g.lon));
-      for (const seg of clipLine(pts)) roads.push({ pts: simplify(seg), w: ROAD[t.highway][0], kind: t.surface && /asphalt|paved|concrete/.test(t.surface) ? 'asphalt' : ROAD[t.highway][1], name: t.name || undefined });
+      roads0.push({ pts: e.geometry.map(g => P0(g.lat, g.lon)), w: ROAD[t.highway][0], kind: t.surface && /asphalt|paved|concrete/.test(t.surface) ? 'asphalt' : ROAD[t.highway][1], name: t.name || t['name:fr'] || '' });
       continue;
     }
-    if (e.type === 'way' && t.building && e.geometry && e.geometry.length >= 4) {
-      let pts = e.geometry.map(g => P(g.lat, g.lon)); pts.pop();
-      const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length, cz = pts.reduce((s, p) => s + p[1], 0) / pts.length;
-      if (!inside([cx, cz])) continue;
-      // sens horaire/anti-horaire cohérent
-      let a = 0; for (let i = 0; i < pts.length; i++) { const [x1, z1] = pts[i], [x2, z2] = pts[(i + 1) % pts.length]; a += x1 * z2 - x2 * z1; } if (a < 0) pts.reverse();
-      const lv = Number(t['building:levels']); buildings.push({ pts: pts.map(([x, z]) => [Math.round(x * 10) / 10, Math.round(z * 10) / 10]), h: lv ? lv * 3.1 : 3.2 });
-      continue;
+    const isB = e.type === 'way' && t.building && e.geometry && e.geometry.length >= 4;
+    if (isB) { const pts = e.geometry.map(g => P0(g.lat, g.lon)); pts.pop(); const lv = Number(t['building:levels']); bld0.push({ pts, h: lv ? lv * 3.1 : 3.2, tags: t }); }
+    const name = t.name || t['name:fr'];
+    const ty = name || t.amenity === 'marketplace' || t.shop === 'market' ? poiType(t) : null;
+    if (ty) {
+      const c = e.type === 'node' ? P0(e.lat, e.lon) : e.geometry ? (() => { const a = e.geometry.map(g => P0(g.lat, g.lon)); return [a.reduce((s, p) => s + p[0], 0) / a.length, a.reduce((s, p) => s + p[1], 0) / a.length]; })() : e.bounds ? P0((e.bounds.minlat + e.bounds.maxlat) / 2, (e.bounds.minlon + e.bounds.maxlon) / 2) : null;
+      if (c) pois0.push({ type: ty, name: name || (ty === 'market' ? 'Marché' : ''), p: c });
     }
-    const c = e.center || (e.lat != null ? { lat: e.lat, lon: e.lon } : e.geometry?.[0]);
-    if (c && (t.amenity || t.shop)) pois.push({ k: t.amenity === 'marketplace' || t.shop === 'market' ? 'market' : /clinic|hospital|doctors/.test(t.amenity) ? 'csps' : /bar|restaurant/.test(t.amenity) ? 'maquis' : 'other', p: P(c.lat, c.lon), name: t.name });
   }
-  console.log(`  ${roads.length} rues, ${buildings.length} bâtiments, ${trees.length} arbres, ${pois.length} lieux`);
+  // --- fenêtre de jeu 300 m x 300 m : celle qui contient le plus de lieux reconnaissables ---
+  let win = [0, 0];
+  if (SEARCH) {
+    let best = -1e9;
+    for (let wx = -SEARCH; wx <= SEARCH; wx += 50) for (let wz = -SEARCH; wz <= SEARCH; wz += 50) {
+      const inW = ([x, z]) => Math.abs(x - wx) <= HALF && Math.abs(z - wz) <= HALF;
+      const names = new Set(); let sc = 0;
+      for (const p of pois0) if (inW(p.p) && p.name && !names.has(p.name)) { names.add(p.name); sc += TYPE_W[p.type] * 3; }
+      for (const b of bld0) { const c = b.pts[0]; if (inW(c)) sc += .12; }
+      const rn = new Set(); for (const r of roads0) if (r.pts.some(inW)) { if (r.name) rn.add(r.name); sc += .6; }
+      sc += rn.size * 1.5 - Math.hypot(wx, wz) / 150;
+      if (sc > best) { best = sc; win = [wx, wz]; }
+    }
+    console.log(`  fenêtre choisie : ${Math.round(win[0])} m E, ${Math.round(-win[1])} m N du centre géocodé (centre = ${(lat0 - win[1] / mLat).toFixed(5)}, ${(lon0 + win[0] / mLon).toFixed(5)})`);
+  }
+  const P = ([x, z]) => [Math.round((x - win[0]) * 10) / 10, Math.round((z - win[1]) * 10) / 10];
+  const roads = [], buildings = [], trees = [], pois = [];
+  for (const r of roads0) { const pts = r.pts.map(P); for (const seg of clipLine(pts)) roads.push({ pts: simplify(seg), w: r.w, kind: r.kind, name: r.name || undefined }); }
+  for (const b of bld0) {
+    let pts = b.pts.map(P); const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length, cz = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+    if (!inside([cx, cz])) continue;
+    let a = 0; for (let i = 0; i < pts.length; i++) { const [x1, z1] = pts[i], [x2, z2] = pts[(i + 1) % pts.length]; a += x1 * z2 - x2 * z1; } if (a < 0) pts.reverse();
+    buildings.push({ pts, h: b.h, ...(poiType(b.tags) && b.tags.building !== 'yes' && /mosque|church|cathedral|school|hospital/.test(b.tags.building) ? { kind: poiType(b.tags) } : {}) });
+  }
+  for (const t of trees0) { const p = P(t); if (inside(p)) trees.push(p); }
+  for (const p of pois0) { const q2 = P(p.p); if (Math.abs(q2[0]) <= HALF - 6 && Math.abs(q2[1]) <= HALF - 6) pois.push({ k: p.type, p: q2, name: p.name }); }
+  console.log(`  ${roads.length} rues, ${buildings.length} bâtiments, ${trees.length} arbres, ${pois.length} lieux nommés : ${[...new Set(pois.filter(p => p.name).map(p => p.name))].slice(0, 12).join(' · ')}`);
   if (roads.length < 5) throw new Error('Trop peu de données OSM ici : vérifie le centre (--center=lat,lon).');
   // Emplacements des zones de jeu : endroits dégagés, près des positions souhaitées (ou d'un vrai lieu OSM)
   const segs = []; for (const r of roads) for (let i = 0; i < r.pts.length - 1; i++) segs.push([r.pts[i], r.pts[i + 1], r.w]);
@@ -85,7 +125,7 @@ async function importQuartier(q, centerArg) {
   };
   const anchors = {}, taken = [];
   for (const [k, [ox, oz]] of Object.entries(ORIGINS)) {
-    let want = [ox, oz]; const poi = pois.find(p => p.k === k && inside(p.p)); if (poi) want = poi.p;
+    let want = [ox, oz]; const kk = k === 'csps' ? 'health' : k === 'maquis' ? 'food' : k; const poi = pois.find(p => p.k === kk && inside(p.p)); if (poi) want = poi.p;
     let best = null, bc0 = 1e12;
     for (let x = -HALF + CLEAR[k]; x <= HALF - CLEAR[k]; x += 4) for (let z = -HALF + CLEAR[k]; z <= HALF - CLEAR[k]; z += 4) {
       if (taken.some(([tx, tz, tr]) => Math.hypot(tx - x, tz - z) < tr + CLEAR[k])) continue;
@@ -97,7 +137,18 @@ async function importQuartier(q, centerArg) {
   // le terrain des zones de jeu doit rester libre : on retire bâtiments/arbres qui chevauchent
   const cut = (x, z) => taken.some(([tx, tz, tr]) => Math.hypot(tx - x, tz - z) < tr);
   const kept = buildings.filter(b => { const cx = b.pts.reduce((s, p) => s + p[0], 0) / b.pts.length, cz = b.pts.reduce((s, p) => s + p[1], 0) / b.pts.length; return !cut(cx, cz); });
-  const out = { id: q.id, name: q.name, source: 'OpenStreetMap contributors (ODbL)', center: [lat0, lon0], half: HALF, roads, buildings: kept.slice(0, 900), trees: trees.filter(([x, z]) => !cut(x, z)).slice(0, 500), anchors };
+  const taken0 = taken.slice();
+  const seenN = new Set(), landmarks = [];
+  for (const p of pois.filter(p => p.name && p.k !== 'shop' || p.k === 'market').sort((a, b) => TYPE_W[b.k] - TYPE_W[a.k])) {
+    if (seenN.has(p.name) || landmarks.length >= 22) continue; if (taken0.some(([tx, tz, tr]) => Math.hypot(tx - p.p[0], tz - p.p[1]) < tr)) continue;
+    seenN.add(p.name); landmarks.push({ type: p.k, name: p.name, x: Math.round(p.p[0]), z: Math.round(p.p[1]) });
+  }
+  const streets = [], seenS = new Set();
+  for (const r of roads.filter(r => r.name).sort((a, b) => b.pts.length - a.pts.length)) {
+    if (seenS.has(r.name) || streets.length >= 14) continue; seenS.add(r.name);
+    const m = r.pts[Math.floor(r.pts.length / 2)]; streets.push({ name: r.name, x: m[0], z: m[1], w: r.w });
+  }
+  const out = { id: q.id, name: q.name, source: 'OpenStreetMap contributors (ODbL)', center: [+(lat0 - win[1] / mLat).toFixed(6), +(lon0 + win[0] / mLon).toFixed(6)], half: HALF, roads, buildings: kept.slice(0, 900), landmarks, streets, window: { lat: +(lat0 - win[1] / mLat).toFixed(6), lon: +(lon0 + win[0] / mLon).toFixed(6) }, trees: trees.filter(([x, z]) => !cut(x, z)).slice(0, 500), anchors };
   fs.mkdirSync(OUT, { recursive: true }); fs.writeFileSync(path.join(OUT, q.id + '.json'), JSON.stringify(out));
   console.log(`  ✓ ${q.id}.json écrit (${(JSON.stringify(out).length / 1024).toFixed(0)} Ko)`);
 }

@@ -5,6 +5,7 @@ import { rng, lateriteTexture, roadTexture, plasterTexture, roofTexture, pavingT
 import { PAL, house, hut, compoundWalls, tree, shrub, tuft, pole, wire, lamp, parkedMoto, motoModel, barrel, crate, chair, sign, addCollider, rectPoly, rectCollider, bench } from './props.js';
 import { buildHome, buildMarket, buildMaquis, buildTaxi, buildCSPS, buildMeeting, buildCulture, FOOTPRINTS } from './prefabs.js';
 import { buildCharacter } from './characters.js';
+import { lmStyle, decorateBuilding, standaloneLandmark, streetSign } from './landmarks.js';
 
 export const HALF = 150;
 const ORIGINS = {
@@ -93,7 +94,7 @@ export class World {
   }
 
   async build(quartier, content, onProgress = () => {}) {
-    this.clear(); this.quartier = quartier;
+    this.clear(); this.quartier = quartier; this.landmarks = [];
     const tick = async (p, msg) => { onProgress(p, msg); await new Promise(r => setTimeout(r, 0)); };
     await tick(.05, 'Préparation du terrain…');
     const osm = await this.loadOsm(quartier.id);
@@ -110,7 +111,7 @@ export class World {
     let roads = spec.roads;
     let origins = { ...spec.origins };
     const blocked = [];
-    if (osm) { roads = osm.roads.map(r => ({ pts: r.pts, w: r.w || 5, kind: r.kind || 'dirt' })); for (const k of Object.keys(origins)) if (osm.anchors?.[k]) origins[k] = osm.anchors[k]; }
+    if (osm) { roads = osm.roads.map(r => ({ pts: r.pts, w: r.w || 5, kind: r.kind || 'dirt', name: r.name })); for (const k of Object.keys(origins)) if (osm.anchors?.[k]) origins[k] = osm.anchors[k]; }
     this.roads = roads; this.origins = origins;
     for (const [k, [x, z]] of Object.entries(origins)) { const f = FOOTPRINTS[k]; blocked.push({ k, x, z, w: f.w + 4, d: f.d + 4 }); }
 
@@ -267,22 +268,49 @@ export class World {
     this.compounds = comps;
   }
 
+  _nearestRoad(x, z) {
+    let best = null, bd = 1e9;
+    for (const r of this.roads) for (let i = 0; i < r.pts.length - 1; i++) {
+      const a = r.pts[i], b = r.pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1], l = dx * dx + dz * dz || 1;
+      const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / l)), px = a[0] + t * dx, pz = a[1] + t * dz, d = Math.hypot(px - x, pz - z);
+      if (d < bd) { bd = d; best = { x: px, z: pz, d }; }
+    }
+    return best;
+  }
+  _dirToRoad(x, z) { const n = this._nearestRoad(x, z); if (!n || n.d < .1) return { x: 0, z: 1 }; return { x: (n.x - x) / n.d, z: (n.z - z) / n.d }; }
+
   _osmBuildings(ctx, osm, blocked) {
     const { B, R, pal } = ctx;
     const wallCols = pal.walls;
+    const lms = (osm.landmarks || []).map(L => ({ ...L, used: false }));
+    this.landmarks = lms;
     for (const b of osm.buildings || []) {
       const pts = b.pts; if (!pts || pts.length < 3) continue;
       const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length, cz = pts.reduce((s, p) => s + p[1], 0) / pts.length;
       let minx = 1e9, maxx = -1e9, minz = 1e9, maxz = -1e9; for (const [x, z] of pts) { minx = Math.min(minx, x); maxx = Math.max(maxx, x); minz = Math.min(minz, z); maxz = Math.max(maxz, z); }
       if (blocked.some(bk => rectOverlap({ x: (minx + maxx) / 2, z: (minz + maxz) / 2, w: maxx - minx, d: maxz - minz }, bk, 0))) continue;
-      const h = Math.max(2.6, Math.min(b.h || 3.2, 14)), shape = new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x, -z)));
+      // un repère réel (mosquée, école…) est-il sur ce bâtiment ?
+      let L = null, bestD = 7;
+      for (const l of lms) { if (l.used) continue; const dx = Math.max(minx - l.x, 0, l.x - maxx), dz = Math.max(minz - l.z, 0, l.z - maxz), d = Math.hypot(dx, dz); if (d < bestD) { bestD = d; L = l; } }
+      if (!L && b.kind) { /* bâtiment typé OSM sans nom */ }
+      const st = L ? lmStyle(L.type) : null;
+      const h = Math.max(2.6, Math.min(L ? Math.max(b.h || 3.2, st.h) : (b.h || 3.2), 14)), shape = new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x, -z)));
       const g = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false }); g.rotateX(-Math.PI / 2);
       const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * .1, uv.getY(i) * .1);
-      B.add(g, null, wallCols[Math.floor(R() * wallCols.length)], 'wall', .05);
+      B.add(g, null, L ? st.wall : wallCols[Math.floor(R() * wallCols.length)], 'wall', .05);
       const rg = new THREE.ShapeGeometry(shape); rg.rotateX(-Math.PI / 2); rg.translate(0, h + .05, 0);
       const ruv = rg.attributes.uv, rp = rg.attributes.position; for (let i = 0; i < ruv.count; i++) ruv.setXY(i, rp.getX(i) / 3.2, rp.getZ(i) / 3.2);
-      B.add(rg, null, pal.roofs[Math.floor(R() * pal.roofs.length)], 'roof', .06);
+      B.add(rg, null, L ? st.roof : pal.roofs[Math.floor(R() * pal.roofs.length)], 'roof', .06);
       addCollider(ctx, pts);
+      if (L) { L.used = true; L.x = cx; L.z = cz; decorateBuilding(ctx, L, { minx, maxx, minz, maxz, cx, cz, h }, this._dirToRoad(cx, cz)); }
+    }
+    // repères sans bâtiment dans OSM : petit bâtiment-repère
+    for (const L of lms) if (!L.used) { if (blocked.some(bk => rectOverlap({ x: L.x, z: L.z, w: 12, d: 9 }, bk, 0))) continue; L.used = true; standaloneLandmark(ctx, L, this._dirToRoad(L.x, L.z)); }
+    // plaques de rues
+    for (const s of osm.streets || []) {
+      const r = this.roads.find(r => r.name === s.name); if (!r) continue;
+      let i = Math.floor(r.pts.length / 2); const a = r.pts[Math.max(0, i - 1)], b2 = r.pts[Math.min(r.pts.length - 1, i + 1)];
+      streetSign(ctx, s.name, r.pts[i][0], r.pts[i][1], b2[0] - a[0], b2[1] - a[1], r.w || 5);
     }
   }
 

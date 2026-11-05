@@ -131,4 +131,4 @@ export function recompute(translationId) {
 }
 
 // Une traduction est « exportable » si validée ET (phrase non sensible OU approuvée par un admin).
-export const ELIGIBLE_SQL = `t.status='validated' AND (p.sensitive=0 OR t.admin_status='approved') AND p.active=1`;
+export const ELIGIBLE_SQL = `t.status='validated' AND (p.sensitive=0 OR t.admin_status='approved') AND p.active=1 AND (t.text != '' OR t.audio_file IS NOT NULL)`;

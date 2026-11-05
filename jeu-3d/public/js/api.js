@@ -30,9 +30,9 @@ export const Api = {
   leaderboard(q) { return this.req('GET', '/api/leaderboard' + (q ? '?quartier=' + q : '')); },
   stats() { return this.req('GET', '/api/stats'); },
 
-  async translate(prompt_key, lang, text) {
+  async translate(prompt_key, lang, text, voice = false) {
     if (this.demo) return { id: 0, points_awarded: 10 };
-    return this.req('POST', '/api/translate', { prompt_key, lang, text });
+    return this.req('POST', '/api/translate', { prompt_key, lang, text, voice });
   },
   async uploadAudio(id, blob) {
     if (this.demo || !id) return { points_awarded: 5 };

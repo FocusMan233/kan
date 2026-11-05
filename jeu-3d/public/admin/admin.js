@@ -55,7 +55,7 @@ const VIEWS = {
       ${sel('voice', ['Voix ?', ['1', 'Avec voix']])}${sel('review', ['Relecture', ['1', 'Santé à relire']])}<button class="btn ghost" id="add">+ Ajouter</button></div>
     <table><tr><th>#</th><th>Français</th><th>Traduction</th><th>Statut</th><th>Joueur</th><th>Actions</th></tr>${d.rows.map(r => `<tr>
       <td>${r.id}</td><td class="fr">${esc(r.text_fr)}<br><span class="tag">${ZONES[r.zone]}</span>${r.sensitive ? ' <span class="tag w">santé</span>' : ''}${r.verify ? ' <span class="tag w">à vérifier</span>' : ''}</td>
-      <td><span class="loc">${esc(r.text)}</span><br><span class="mut">${LANGS[r.lang] || r.lang}</span>${r.has_audio ? `<br><button class="btn s ghost" data-play="${r.id}">▶ voix</button>` : ''}</td>
+      <td><span class="loc">${r.text ? esc(r.text) : '<i class="mut">voix seule — à transcrire</i>'}</span><br><span class="mut">${LANGS[r.lang] || r.lang}</span>${r.has_audio ? `<br><button class="btn s ghost" data-play="${r.id}">▶ voix</button>` : ''}</td>
       <td><span class="tag ${r.status}">${r.status}</span>${r.admin_status ? `<br><span class="tag">admin : ${r.admin_status}</span>` : ''}<br><span class="mut">👍${r.yes} 👎${r.no}</span></td>
       <td>${esc(r.user_name || (r.source === 'admin' ? 'admin' : '—'))}<br><span class="mut">${esc(r.quartier || '')}</span></td>
       <td><div class="act"><button class="btn s g" data-a="approved" data-id="${r.id}">✓</button><button class="btn s r" data-a="rejected" data-id="${r.id}">✗</button><button class="btn s ghost" data-edit="${r.id}">✎</button><button class="btn s ghost" data-del="${r.id}">🗑</button></div></td></tr>`).join('') || '<tr><td colspan="6" class="mut">Aucune traduction.</td></tr>'}</table>
