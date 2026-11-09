@@ -50,6 +50,25 @@ export const NPCS = {
 
 // Chaque step : { npc, say } — `say` est la phrase française à traduire.
 // Une mission est une suite de rencontres : le joueur est l'interprète de Yaaba.
+// ---- Assistant maternité (voir server/maternite.js) --------------------------------
+// Messages « de base » envoyés aux couples par l'assistant. Ils sont proposés aux joueurs
+// comme mission de santé : la version mooré / dioula validée (et approuvée par l'admin,
+// car sensible) est celle qui part par SMS ; à défaut, le message part en français.
+// Le prénom et la date sont ajoutés autour du texte par l'assistant : pas de variable ici.
+// ⚠ Contenu à faire relire par un professionnel de santé avant tout usage réel.
+export const MATERNITE_MISSION_ID = 's4';
+export const MATERNITE_CORES = [
+  { id: 'welcome_mere', fr: 'Bienvenue dans le suivi de votre grossesse. Vous recevrez des conseils et des rappels de rendez-vous.' },
+  { id: 'welcome_partenaire', fr: 'La future maman est inscrite au suivi de sa grossesse. Vous recevrez des conseils pour la soutenir.' },
+  { id: 'cpn_mere', fr: 'Votre consultation prénatale approche. Allez au centre de santé avec votre carnet.' },
+  { id: 'cpn_partenaire', fr: 'La consultation prénatale approche. Pensez au transport et accompagnez la future maman si possible. Votre soutien compte.' },
+  { id: 'danger_mere', fr: 'En cas de saignement, de forte fièvre, de maux de tête sévères ou de fortes douleurs au ventre, allez tout de suite au centre de santé.' },
+  { id: 'danger_partenaire', fr: 'En cas de saignement, de forte fièvre, de maux de tête sévères ou de fortes douleurs au ventre, conduisez la future maman tout de suite au centre de santé.' },
+  { id: 'move_mere', fr: 'À ce stade, vous pouvez sentir bébé bouger. Si bébé ne bouge plus, allez au centre de santé.' },
+  { id: 'term_mere', fr: 'L\'accouchement approche. Préparez votre sac et le transport vers le centre de santé.' },
+  { id: 'term_partenaire', fr: 'L\'accouchement approche. Préparez le transport et un peu d\'argent, et restez joignable.' },
+  { id: 'alert_partenaire', fr: 'Un signe de danger a été signalé. Suivez les conseils de l\'agent de santé et allez au centre de santé.' },
+];
 export const MISSIONS = [
   { id: 'q1', zone: 'quartier', level: 1, reward: 40, title: 'Bonjour le quartier',
     summary: 'Salue les voisins comme il se doit.',
@@ -121,6 +140,11 @@ export const MISSIONS = [
       { npc: 'sagefemme', say: 'Revenez pour la prochaine consultation dans un mois.' },
     ] },
 
+  { id: 's4', zone: 'sante', level: 3, reward: 90, sensitive: true, verify: true, title: 'Ma grossesse, mon couple',
+    summary: 'Traduis les conseils envoyés aux futurs parents.',
+    intro: 'La sage-femme envoie des conseils par SMS et par message vocal aux futurs parents. Traduis-les : ils serviront à l\'assistant maternité. (Simulation de jeu, pas un conseil médical.)',
+    steps: MATERNITE_CORES.map(c => ({ npc: 'sagefemme', say: c.fr })) },
+
   { id: 'm1', zone: 'meeting', level: 2, reward: 70, title: 'Le meeting du quartier',
     summary: 'Traduis le discours de bienvenue.',
     intro: 'Toute la place est réunie. Yaaba veut comprendre le discours : traduis-le pour elle.',
@@ -181,6 +205,11 @@ export const MISSIONS = [
 ];
 
 export function promptKey(missionId, i) { return `${missionId}.${i + 1}`; }
+
+export function maternitePromptKey(coreId) {
+  const i = MATERNITE_CORES.findIndex(c => c.id === coreId);
+  return i < 0 ? null : promptKey(MATERNITE_MISSION_ID, i);
+}
 
 export function allPromptSeeds() {
   const out = [];

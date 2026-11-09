@@ -43,6 +43,16 @@ Vue d'ensemble, traductions (filtres, écoute des voix, approuver/rejeter/corrig
 - `GET /api/v1/pairs?target=dioula&limit=100&cursor=…` — paires validées (pagination)
 - `GET /api/v1/export?format=jsonl&lang=moore`, `GET /api/v1/audio/:id`, `GET /api/v1/languages`, `GET /api/v1/stats`
 
+## Assistant maternité (2e interface de Kan)
+Usage réel des données collectées : suivi des grossesses par SMS, en français, mooré ou dioula.
+- **Agent de santé (ASBC)** : `/maternite` — il se connecte (téléphone + code), inscrit une femme enceinte (date des dernières règles, consentement obligatoire, partenaire facultatif avec l'accord de la femme), suit ses CPN, et déclenche une **alerte signe de danger** (SMS au centre de santé et au partenaire).
+- **Admin** : `/maternite/admin.html` (même mot de passe que `/admin`) — créer les agents (avec le numéro d'alerte de leur centre de santé), lancer ou **simuler** l'envoi à une autre date (« bond dans le temps » pour une démo), voir alertes et messages.
+- **Messages** : calendrier dans `server/maternite.js` (`SCHEDULE`) — conseils signes de danger (14 SA), mouvements du bébé (21 SA), préparation à l'accouchement (33 SA) et rappel avant chacune des 8 CPN OMS (12, 20, 26, 30, 34, 36, 38, 40 SA). Envoi automatique chaque jour après 07:00 UTC (`MATERNITE_SCHEDULER=0` pour couper). Une femme inscrite tard ne reçoit pas les rappels passés.
+- **Langues** : le texte de base de chaque message est une phrase de la mission de jeu « Ma grossesse, mon couple » (`MATERNITE_CORES` dans `server/content.js`). Quand sa traduction mooré/dioula est **validée par les joueurs ET approuvée par un admin** (phrase sensible), c'est elle qui part ; sinon le message part en français.
+- **SMS** : `SMS_PROVIDER=log` (défaut : rien n'est envoyé, les messages sont seulement enregistrés — mode démo) ou `SMS_PROVIDER=brevo` avec `BREVO_API_KEY` et `SMS_SENDER` (l'appel Brevo n'a pas encore été testé en réel). `DEFAULT_COUNTRY_CODE` (226) complète les numéros à 8 chiffres.
+- **Tests** : `npm test`.
+- **Avant un usage réel** : faire relire tous les messages par un professionnel de santé ; faire relire le consentement par un juriste (données de santé) ; les données `mat_*` ne sont jamais exposées par l'API publique `/api/v1`. Pas encore gérés : réponses des femmes par SMS, suivi après l'accouchement, fulfuldé.
+
 ## Limites connues (phase de test)
 - Le numéro de téléphone n'est pas vérifié : quelqu'un qui connaît un numéro peut reprendre le compte correspondant. À remplacer par une vérification (OTP) avant le lancement public.
 - Les validations sont croisées entre joueurs : tant qu'il y a peu de joueurs, peu de traductions seront « validées » ; utilise l'approbation admin pour amorcer.
