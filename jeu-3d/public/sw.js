@@ -1,6 +1,6 @@
 // Service worker de Kan : permet l'installation et un démarrage rapide, même avec une connexion faible.
 // Les appels /api ne sont JAMAIS mis en cache (données de santé, sessions, audio).
-const VERSION = 'kan-v1';
+const VERSION = 'kan-v2';
 const SHELL = ['/', '/css/game.css', '/assistant/', '/assistant/assistant.css', '/assistant/assistant.js', '/maternite/', '/maternite/maternite.css', '/maternite/app.js', '/manifest.webmanifest', '/icons/icon-192.png'];
 
 self.addEventListener('install', e => {

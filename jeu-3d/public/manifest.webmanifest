@@ -8,8 +8,8 @@
   "id": "/",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#14231a",
-  "theme_color": "#14231a",
+  "background_color": "#fff7ec",
+  "theme_color": "#f0553a",
   "categories": ["education", "health"],
   "icons": [
     { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },

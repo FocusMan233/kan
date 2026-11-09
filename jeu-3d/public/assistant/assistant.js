@@ -118,25 +118,26 @@ function render(heard) {
   status = h('div', { class: 'status', 'aria-live': 'polite' }, heard ? `Tu as dit : « ${heard} »` : '');
   const women = topics.filter(t => t.audience === 'femme');
   const partner = topics.filter(t => t.audience === 'partenaire');
-  const card = t => h('button', { class: 'topic' + (t.audience === 'partenaire' ? ' p' : ''), onclick: () => openTopic(t) }, h('span', { class: 'i' }, t.icon), t.title);
+  const card = t => h('button', { class: 'topic c-' + t.id, onclick: () => openTopic(t) }, h('span', { class: 'i' }, t.icon), t.title);
   const installed = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
-  root.replaceChildren(h('main', {},
-    h('h1', {}, 'Kan — Assistant'), h('div', { class: 'sub' }, 'Ma grossesse, mon bébé'),
-    h('div', { class: 'urgent' }, '🚨 Urgence (saignement, forte fièvre, convulsions) : va tout de suite au centre de santé.'),
-    installEvent && !installed ? h('button', { class: 'install', onclick: async () => { installEvent.prompt(); await installEvent.userChoice; installEvent = null; render(); } }, '📲 Installer l\'application sur mon téléphone') : null,
-    ios && !installed ? h('div', { class: 'hint' }, 'Pour installer : touche le bouton Partager de Safari, puis « Sur l\'écran d\'accueil ».') : null,
-    h('div', { class: 'langs', role: 'group', 'aria-label': 'Langue' }, LANGS.map(([c, n]) =>
-      h('button', { 'aria-pressed': String(c === lang), onclick: async () => { lang = c; LS.set('kan.asst.lang', c); stopAll(); current = null; await loadTopics(); render(); } }, n))),
-    frOnlyMic
-      ? h('div', { class: 'mic' }, h('button', { id: 'mic', onclick: listen, 'aria-label': 'Parler à l\'assistant' }, '🎤'), status)
-      : h('div', { class: 'mic' }, h('div', { class: 'hint' }, lang === 'fr'
-        ? 'Ton navigateur ne permet pas de parler à l\'assistant. Appuie sur une image.'
-        : 'Comprendre la voix en ' + LANGS.find(l => l[0] === lang)[1] + ' n\'est pas encore possible : appuie sur une image pour écouter.'), status),
-    current ? h('div', { id: 'ans' }, answerCard(current)) : null,
-    h('h2', {}, 'Pour moi'), h('div', { class: 'grid' }, women.map(card)),
-    partner.length ? [h('h2', {}, 'Pour mon mari'), h('div', { class: 'grid' }, partner.map(card))] : null,
-    h('div', { class: 'foot' }, h('a', { href: '/' }, '🎮 Jouer à Kan'), h('a', { href: '/maternite/' }, 'Agent de santé'))));
+  const L = LANGS.find(l => l[0] === lang)[1];
+  root.replaceChildren(
+    h('div', { class: 'hero' }, h('h1', {}, 'Bonjour 👋'), h('div', { class: 'sub' }, 'Je t\'aide pendant ta grossesse. Parle ou appuie sur une image.')),
+    h('main', {},
+      h('div', { class: 'panel' },
+        h('div', { class: 'langs', role: 'group', 'aria-label': 'Langue' }, LANGS.map(([c, n]) =>
+          h('button', { 'aria-pressed': String(c === lang), onclick: async () => { lang = c; LS.set('kan.asst.lang', c); stopAll(); current = null; await loadTopics(); render(); } }, n))),
+        frOnlyMic
+          ? h('div', { class: 'mic' }, h('button', { id: 'mic', onclick: listen, 'aria-label': 'Parler à l\'assistant' }, '🎤'), h('div', { class: 'label' }, 'Appuie et parle'), status)
+          : h('div', { class: 'mic' }, h('div', { class: 'hint' }, lang === 'fr' ? 'Ton navigateur ne permet pas de parler à l\'assistant. Appuie sur une image.' : 'Comprendre la voix en ' + L + ' n\'est pas encore possible : appuie sur une image pour écouter.'), status),
+        installEvent && !installed ? h('button', { class: 'install', onclick: async () => { installEvent.prompt(); await installEvent.userChoice; installEvent = null; render(); } }, '📲 Installer l\'application') : null,
+        ios && !installed ? h('div', { class: 'hint' }, 'Pour installer : bouton Partager de Safari, puis « Sur l\'écran d\'accueil ».') : null),
+      current ? h('div', { id: 'ans' }, answerCard(current)) : null,
+      h('h2', {}, 'Que veux-tu savoir ?'), h('div', { class: 'grid' }, women.map(card)),
+      partner.length ? [h('h2', {}, 'Pour mon mari'), h('div', { class: 'grid' }, partner.map(card))] : null,
+      h('div', { class: 'urgent' }, '🚨 Urgence (saignement, forte fièvre, convulsions) : va tout de suite au centre de santé.'),
+      h('div', { class: 'foot' }, h('a', { href: '/' }, '🎮 Jouer à Kan'), h('a', { class: 'alt', href: '/maternite/' }, 'Agent de santé'))));
 }
 
 addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvent = e; render(); });
