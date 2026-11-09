@@ -92,25 +92,41 @@ function openTopic(t, heard) {
   document.getElementById('ans')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
+const MIC_ERRORS = {
+  'not-allowed': 'Le micro est bloqué. Autorise-le (cadenas à côté de l\'adresse), puis réessaie.',
+  'service-not-allowed': 'Le micro est bloqué. Autorise-le (cadenas à côté de l\'adresse), puis réessaie.',
+  'no-speech': 'Je n\'ai rien entendu. Appuie et parle plus près.',
+  'audio-capture': 'Aucun micro détecté sur cet appareil.',
+  'network': 'La voix a besoin d\'internet. Vérifie ta connexion, ou écris ta question.',
+  'language-not-supported': 'Ce navigateur ne comprend pas le français parlé. Écris ta question.',
+};
+function answer(said) {
+  const t = match(said);
+  if (t) openTopic(t, said);
+  else {
+    setStatus('Je n\'ai pas bien compris. Choisis une image ci-dessous.');
+    speakFr('Je n\'ai pas bien compris. Choisis un sujet en appuyant sur une image.');
+  }
+}
+let rec = null;
 function listen() {
-  if (!SR) return;
-  stopAll();
-  const rec = new SR();
-  rec.lang = 'fr-FR'; rec.interimResults = false; rec.maxAlternatives = 1;
   const btn = document.getElementById('mic');
-  btn.classList.add('on'); setStatus('Je t\'écoute… parle maintenant.');
-  rec.onresult = e => {
-    const said = e.results[0][0].transcript;
-    const t = match(said);
-    if (t) openTopic(t, said);
-    else {
-      setStatus('Je n\'ai pas bien compris. Appuie sur une image.');
-      speakFr('Je n\'ai pas bien compris. Choisis un sujet en appuyant sur une image.');
-    }
-  };
-  rec.onerror = e => setStatus(e.error === 'not-allowed' ? 'Autorise le micro pour parler à l\'assistant.' : 'Je n\'ai rien entendu. Réessaie.');
-  rec.onend = () => btn.classList.remove('on');
-  try { rec.start(); } catch { btn.classList.remove('on'); }
+  if (rec) { try { rec.stop(); } catch {} return; }          // 2e appui = arrêter
+  stopAll();
+  setStatus('Démarrage du micro…');
+  let got = false;
+  try {
+    rec = new SR();
+    rec.lang = 'fr-FR'; rec.interimResults = false; rec.maxAlternatives = 1; rec.continuous = false;
+    rec.onstart = () => { btn.classList.add('on'); setStatus('Je t\'écoute… parle maintenant.'); };
+    rec.onresult = e => { got = true; answer(e.results[0][0].transcript); };
+    rec.onerror = e => { got = true; setStatus(MIC_ERRORS[e.error] || 'Micro indisponible (' + e.error + '). Écris ta question ci-dessous.'); };
+    rec.onend = () => { btn.classList.remove('on'); rec = null; if (!got) setStatus('Je n\'ai rien entendu. Réessaie ou écris ta question.'); };
+    rec.start();
+  } catch (e) {
+    rec = null; btn.classList.remove('on');
+    setStatus('Le micro ne démarre pas sur ce navigateur. Écris ta question ci-dessous.');
+  }
 }
 
 function render(heard) {
@@ -131,6 +147,8 @@ function render(heard) {
         frOnlyMic
           ? h('div', { class: 'mic' }, h('button', { id: 'mic', onclick: listen, 'aria-label': 'Parler à l\'assistant' }, '🎤'), h('div', { class: 'label' }, 'Appuie et parle'), status)
           : h('div', { class: 'mic' }, h('div', { class: 'hint' }, lang === 'fr' ? 'Ton navigateur ne permet pas de parler à l\'assistant. Appuie sur une image.' : 'Comprendre la voix en ' + L + ' n\'est pas encore possible : appuie sur une image pour écouter.'), status),
+        h('form', { class: 'ask', onsubmit: e => { e.preventDefault(); const i = e.target.q; if (i.value.trim()) answer(i.value); } },
+          h('input', { name: 'q', type: 'text', placeholder: 'Ou écris ici : danger, rendez-vous, bébé…', autocomplete: 'off' }), h('button', { type: 'submit' }, 'OK')),
         installEvent && !installed ? h('button', { class: 'install', onclick: async () => { installEvent.prompt(); await installEvent.userChoice; installEvent = null; render(); } }, '📲 Installer l\'application') : null,
         ios && !installed ? h('div', { class: 'hint' }, 'Pour installer : bouton Partager de Safari, puis « Sur l\'écran d\'accueil ».') : null),
       current ? h('div', { id: 'ans' }, answerCard(current)) : null,
