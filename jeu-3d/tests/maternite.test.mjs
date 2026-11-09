@@ -144,3 +144,28 @@ test('les données de santé ne sortent pas dans l\'API publique', async () => {
 });
 
 function DAY() { return 86400000; }
+
+test('assistant vocal : sujets, repli en français, audio public seulement si approuvé', async () => {
+  const fr = (await get('/api/assistant/topics?lang=fr')).body;
+  assert.equal(fr.topics.length, 7);
+  assert.ok(fr.topics.every(t => t.lang === 'fr' && !t.audio_url && t.text));
+  const key = maternitePromptKey('danger_mere');
+  const pid = db.prepare('SELECT id FROM prompts WHERE key=?').get(key).id;
+  const tid = Number(db.prepare("INSERT INTO translations (prompt_id, lang, text, audio_file, status) VALUES (?,?,?,?, 'validated')").run(pid, 'dioula', 'TEXTE-DIOULA', 'x-test.webm').lastInsertRowid);
+  fs.writeFileSync(path.join(dir, 'audio', 'x-test.webm'), 'fake-audio-bytes');
+  let d = (await get('/api/assistant/topics?lang=dioula')).body.topics.find(t => t.id === 'danger');
+  assert.equal(d.lang, 'fr', 'validée par les joueurs mais pas approuvée : repli en français');
+  assert.equal((await fetch(`${base}/api/assistant/audio/${tid}`)).status, 404, 'audio non approuvé : refusé');
+  db.prepare("UPDATE translations SET admin_status='approved' WHERE id=?").run(tid);
+  d = (await get('/api/assistant/topics?lang=dioula')).body.topics.find(t => t.id === 'danger');
+  assert.equal(d.lang, 'dioula'); assert.equal(d.text, 'TEXTE-DIOULA'); assert.equal(d.audio_url, `/api/assistant/audio/${tid}`);
+  assert.equal((await fetch(base + d.audio_url)).status, 200);
+  // l'audio d'une autre phrase du jeu n'est jamais servi par cette route
+  const other = db.prepare("SELECT id FROM prompts WHERE key NOT LIKE 's4.%' LIMIT 1").get().id;
+  const t2 = Number(db.prepare("INSERT INTO translations (prompt_id, lang, text, audio_file, status, admin_status) VALUES (?,?,?,?, 'validated','approved')").run(other, 'dioula', 'autre', 'x-test.webm').lastInsertRowid);
+  assert.equal((await fetch(`${base}/api/assistant/audio/${t2}`)).status, 404);
+  // PWA
+  const sw = await fetch(`${base}/sw.js`); assert.equal(sw.status, 200); assert.equal(sw.headers.get('service-worker-allowed'), '/');
+  const mf = await (await fetch(`${base}/manifest.webmanifest`)).json(); assert.equal(mf.display, 'standalone');
+  for (const i of mf.icons) assert.equal((await fetch(base + i.src)).status, 200);
+});

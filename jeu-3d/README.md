@@ -58,3 +58,10 @@ Usage réel des données collectées : suivi des grossesses par SMS, en françai
 - Les validations sont croisées entre joueurs : tant qu'il y a peu de joueurs, peu de traductions seront « validées » ; utilise l'approbation admin pour amorcer.
 - Personnages et décors sont générés par code (pas de modèles 3D externes). Test : `node tools/smoke-test.mjs` (serveur lancé avec `DATA_DIR=/tmp/kantest PORT=3100 ADMIN_PASSWORD=testpass`).
 - Mode démo sans inscription (tests) : `/?demo=1&q=gounghin`.
+
+## Application installable (PWA) et assistant vocal
+
+- `/` (jeu), `/assistant/` (femmes) et `/maternite/` (ASBC) sont installables sur téléphone (manifeste, icônes, service worker `sw.js`, texte en cache hors ligne).
+- `/assistant/` : sujets en grosses images, lecture audio (enregistrement validé et approuvé s'il existe, sinon voix française du téléphone), micro en français (mots-clés). Mooré/Dioula : texte et audio uniquement une fois les traductions validées + approuvées par l'admin ; repli en français sinon.
+- Pas encore possible : reconnaissance/synthèse libres en mooré et dioula (à entraîner à partir des données collectées par le jeu).
+- Rappels : SMS (`SMS_PROVIDER=brevo`) ; WhatsApp vocal non construit (modèles approuvés Meta + audios consentis requis).

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { db, tx, recompute, AUDIO_DIR, MIN_VOTES, YES_RATIO, ELIGIBLE_SQL, seedPrompts } from './db.js';
 import { LANGUAGES, QUARTIERS, ZONES, NPCS, MISSIONS, promptKey } from './content.js';
-import { registerMaternite, startScheduler as startMaterniteScheduler } from './maternite.js';
+import { registerMaternite, registerAssistant, startScheduler as startMaterniteScheduler } from './maternite.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
@@ -562,9 +562,15 @@ app.use('/api/v1', v1);
 
 // ---------- assistant maternité (2e interface de Kan) ----------
 registerMaternite(app, { admin, wrap, rate });
+registerAssistant(app, { wrap, rate });
 
 // ---------- statique ----------
 app.use('/vendor', express.static(path.join(__dirname, '..', 'public', 'vendor'), { maxAge: '7d', immutable: true }));
+app.get(['/sw.js', '/manifest.webmanifest'], (req, res) => {
+  res.set('Cache-Control', 'no-cache');
+  if (req.path === '/sw.js') res.set('Service-Worker-Allowed', '/');
+  res.sendFile(path.join(__dirname, '..', 'public', req.path));
+});
 app.use(express.static(path.join(__dirname, '..', 'public'), { extensions: ['html'], maxAge: '5m' }));
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'admin', 'index.html')));
 app.get('/health', (req, res) => res.json({ ok: true }));

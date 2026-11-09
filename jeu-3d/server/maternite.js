@@ -9,7 +9,8 @@
 // ⚠ Contenu de santé : tous les messages sont à faire relire par un professionnel de santé.
 // ⚠ Données de santé : ne jamais exposer ces tables dans l'API publique /api/v1.
 import crypto from 'node:crypto';
-import { db, tx, ELIGIBLE_SQL } from './db.js';
+import path from 'node:path';
+import { db, tx, ELIGIBLE_SQL, AUDIO_DIR } from './db.js';
 import { MATERNITE_CORES, maternitePromptKey } from './content.js';
 
 export const DAY_MS = 86400000;
@@ -437,4 +438,61 @@ export function registerMaternite(app, { admin, wrap, rate }) {
     res.json(await runDaily({ asOf: asOf || new Date(), dryRun: !!req.body?.dryRun }));
   }));
 
+}
+
+// =====================================================================================
+// Assistant vocal pour les femmes (PWA /assistant/) : pas de compte, pas de données personnelles.
+// Réponses = messages de base de la mission « Ma grossesse, mon couple », dans la langue choisie.
+// =====================================================================================
+export const ASSISTANT_TOPICS = [
+  { id: 'danger', icon: '🚨', title: 'Signes de danger', audience: 'femme', core: 'danger_mere',
+    words: ['danger', 'saign', 'sang', 'fievre', 'fièvre', 'mal de tete', 'mal de tête', 'tete', 'tête', 'douleur', 'ventre', 'urgence', 'grave', 'mal'] },
+  { id: 'cpn', icon: '🏥', title: 'Ma consultation', audience: 'femme', core: 'cpn_mere',
+    words: ['consultation', 'rendez', 'cpn', 'centre', 'sante', 'santé', 'carnet', 'docteur', 'sage', 'visite'] },
+  { id: 'move', icon: '👶', title: 'Bébé qui bouge', audience: 'femme', core: 'move_mere',
+    words: ['bouge', 'bouger', 'mouvement', 'remue', 'bebe', 'bébé', 'ventre'] },
+  { id: 'term', icon: '🤰', title: 'L\'accouchement', audience: 'femme', core: 'term_mere',
+    words: ['accouch', 'naissance', 'terme', 'sac', 'naitre', 'naître', 'maternite', 'maternité'] },
+  { id: 'p_danger', icon: '👨', title: 'Pour mon mari : signes de danger', audience: 'partenaire', core: 'danger_partenaire', words: ['mari', 'papa', 'partenaire', 'epoux', 'époux'] },
+  { id: 'p_cpn', icon: '👨', title: 'Pour mon mari : la consultation', audience: 'partenaire', core: 'cpn_partenaire', words: [] },
+  { id: 'p_term', icon: '👨', title: 'Pour mon mari : l\'accouchement', audience: 'partenaire', core: 'term_partenaire', words: [] },
+];
+
+/** Texte + audio d'un message dans la langue demandée (traduction validée ET approuvée), sinon français. */
+export function coreMedia(coreId, lang) {
+  const core = MATERNITE_CORES.find(c => c.id === coreId);
+  if (!core) throw new Error(`Message inconnu : ${coreId}`);
+  if (lang && lang !== 'fr') {
+    const row = db.prepare(`SELECT t.id, t.text, t.audio_file FROM translations t JOIN prompts p ON p.id=t.prompt_id
+      WHERE p.key=? AND t.lang=? AND ${ELIGIBLE_SQL}
+      ORDER BY (t.audio_file IS NOT NULL) DESC, (t.yes - t.no) DESC, t.id ASC LIMIT 1`).get(maternitePromptKey(coreId), lang);
+    if (row) return { text: row.text || core.fr, lang, audio_id: row.audio_file ? row.id : null, translated: true };
+  }
+  return { text: core.fr, lang: 'fr', audio_id: null, translated: false };
+}
+
+export function registerAssistant(app, { wrap, rate }) {
+  app.get('/api/assistant/topics', rate('asst', 120, 60000), wrap((req, res) => {
+    const lang = MAT_LANGS.includes(req.query.lang) ? req.query.lang : 'fr';
+    res.set('Cache-Control', 'no-store');
+    res.json({
+      lang,
+      topics: ASSISTANT_TOPICS.map(t => {
+        const m = coreMedia(t.core, lang);
+        return {
+          id: t.id, icon: t.icon, title: t.title, audience: t.audience, words: t.words,
+          text: m.text, lang: m.lang, translated: m.translated, audio_url: m.audio_id ? `/api/assistant/audio/${m.audio_id}` : null,
+        };
+      }),
+    });
+  }));
+
+  // Audio public uniquement pour les traductions de cette mission, validées et approuvées par un admin.
+  app.get('/api/assistant/audio/:id', rate('asa', 120, 60000), wrap((req, res) => {
+    const t = db.prepare(`SELECT t.audio_file FROM translations t JOIN prompts p ON p.id=t.prompt_id
+      WHERE t.id=? AND p.key LIKE 's4.%' AND ${ELIGIBLE_SQL} AND t.audio_file IS NOT NULL`).get(Number(req.params.id));
+    if (!t) return res.status(404).end();
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.sendFile(path.join(AUDIO_DIR, path.basename(t.audio_file)));
+  }));
 }
